@@ -46,6 +46,13 @@ for (const f of logs) {
         report.rejected.push(`${where} ${b.id} 未知类型 ${a.payload?.type}`); continue;
       }
       b.type = a.payload.type;
+    } else if (a.action === "structure") {
+      // 手动结构对齐：块标进层级树（1 章 / 2 节 / 3 目…），同时定型为结构块
+      if (!Number.isInteger(a.payload?.level) || a.payload.level < 1 || a.payload.level > 6) {
+        report.rejected.push(`${where} ${b.id} 非法结构层级 ${a.payload?.level}`); continue;
+      }
+      b.type = "structure";
+      b.level = a.payload.level;
     } else {
       report.rejected.push(`${where} 未知动作 ${a.action}`); continue;
     }

@@ -18,6 +18,7 @@ const payload = JSON.stringify({
   pages: g.pages,
   blocks: g.blocks.map((b) => ({
     id: b.id, page: b.page, bbox: b.bbox, type: b.type, state: b.state, text: b.text,
+    level: b.level,
   })),
 }).replace(/<\/script>/gi, "<\\/script>");
 

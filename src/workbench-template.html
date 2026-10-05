@@ -27,15 +27,25 @@
   #main { display: flex; height: calc(100vh - 42px); }
   #imgpane { flex: 1 1 52%; border-right: 1px solid var(--line); overflow: auto;
     background: #e9e6df; position: relative; }
-  #imgwrap { position: relative; margin: 0 auto; width: fit-content; }
-  #pageimg { display: block; user-select: none; }
-  #bbox { position: absolute; border: 2px solid var(--accent); background: var(--hl);
+  .pagebox { position: relative; margin: 14px auto; width: fit-content; font-size: 0;
+    box-shadow: 0 1px 6px rgba(0,0,0,.18); background: #fff; }
+  .pagebox img { display: block; user-select: none; }
+  .bbox { position: absolute; border: 2px solid var(--accent); background: var(--hl);
     border-radius: 2px; pointer-events: none; display: none; }
+  .imgfail { color: #a8322a; font: 13px sans-serif; padding: 12px; }
   #pagenav { position: sticky; top: 8px; left: 8px; z-index: 5; }
   #pagenav button { border: 1px solid var(--line); background: #fff; border-radius: 3px;
     padding: 2px 10px; cursor: pointer; margin-right: 4px; }
 
   #blockpane { flex: 1 1 48%; overflow: auto; padding: 10px 14px 40vh; }
+  #outline { border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; }
+  #outline .ol-head { font-size: 11.5px; color: var(--dim); margin: 4px 0 6px; font-family: ui-monospace, Consolas, monospace; }
+  #outline .ol-empty { font-size: 12.5px; color: var(--dim); padding: 2px 0 6px; }
+  #outline .ol-item { font-size: 13px; padding: 3px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #outline .ol-item:hover { background: #fff; }
+  #outline .ol-item.lv2 { padding-left: 20px; }
+  #outline .ol-item.lv3 { padding-left: 34px; }
+  #outline .ol-pg { float: right; color: var(--dim); font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
   .blk { padding: 8px 10px; border-left: 3px solid transparent; border-bottom: 1px solid #eee9e0; cursor: pointer; }
   .blk.active { background: #fff; border-left-color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.06); }
   .blk .meta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; margin-bottom: 3px; }
@@ -71,18 +81,18 @@
       <button id="pgNext">下一页 (.) &gt;</button>
       <button id="zoomBtn">缩放 (I)</button>
     </div>
-    <div id="imgwrap">
-      <img id="pageimg" alt="page">
-      <div id="bbox"></div>
-    </div>
+    <div id="pages"></div>
   </div>
-  <div id="blockpane"><div id="blocklist"></div></div>
+  <div id="blockpane">
+    <div id="outline"></div>
+    <div id="blocklist"></div>
+  </div>
 </div>
 <div id="modebar"></div>
 <div id="toast"></div>
 <div id="hint">
   <b>J/K</b> 上下块 · <b>E</b> 改文 · <b>Enter</b> 提交 / <b>Esc</b> 取消 ·
-  <b>G</b> 盖章(原文已定) · <b>Y</b> 退回 · <b>T</b> 改型 · <b>I</b> 缩放 ·
+  <b>G</b> 盖章(原文已定) · <b>Y</b> 退回 · <b>T</b> 改型 · <b>H</b> 标结构 · <b>I</b> 缩放 ·
   <b>, .</b> 翻页 · <b>S</b> 导出日志 · <b>Tab</b> 切箱 · <b>?</b> 帮助
 </div>
 <script>
@@ -96,7 +106,7 @@ var BINS = [
   { key: "all",     label: "全部",   match: function () { return true; } },
 ];
 var TYPES = ["flow", "structure", "furniture", "annotation", "asset", "untyped"];
-var state = { bin: 0, idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, curPage: 0 };
+var state = { bin: 0, idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, levelMode: false, curPage: 0 };
 try {
   var mirrored = JSON.parse(localStorage.getItem(logKey()) || "[]");
   if (mirrored.length) { state.log = mirrored; toast("检测到 " + mirrored.length + " 条未落盘裁决，请先导出"); }
@@ -134,6 +144,7 @@ function applyToBlock(b, action, payload) {
   if (action === "gate") b.state = payload.state;
   else if (action === "edit") b.text = payload.text;
   else if (action === "reclassify") b.type = payload.type;
+  else if (action === "structure") { b.type = "structure"; b.level = payload.level; }
 }
 // 镜像日志重放（与回放器同规则，非法则跳过）
 function replayMirror() {
@@ -147,11 +158,12 @@ function replayMirror() {
       if (ok) b.state = a.payload.state;
     } else if (a.action === "edit") b.text = a.payload.text;
     else if (a.action === "reclassify") b.type = a.payload.type;
+    else if (a.action === "structure") { b.type = "structure"; b.level = a.payload.level; }
   }
 }
 
 // ===== 渲染 =====
-function renderAll() { renderTabs(); renderList(true); renderLogStat(); }
+function renderAll() { renderTabs(); renderOutline(); renderList(true); renderLogStat(); }
 function renderTabs() {
   var c = counts(), html = "";
   for (var i = 0; i < BINS.length; i++)
@@ -175,7 +187,7 @@ function renderList(scroll) {
   for (var i = lo; i < hi; i++) {
     var b = arr[i];
     html += "<div class='blk" + (i === state.idx ? " active" : "") + "' data-i='" + i + "' data-type='" + b.type + "'>"
-      + "<div class='meta'>" + b.id + " · <span class='tp'>" + b.type + "</span> · <span class='st'>" + b.state + "</span></div>"
+      + "<div class='meta'>" + b.id + " · <span class='tp'>" + b.type + (b.type === "structure" && b.level ? " L" + b.level : "") + "</span> · <span class='st'>" + b.state + "</span></div>"
       + "<div class='txt'" + (i === state.idx && state.editing ? " contenteditable='true' id='editor'" : "") + ">"
       + esc(b.text) + "</div></div>";
   }
@@ -184,7 +196,8 @@ function renderList(scroll) {
   var act = el.querySelector(".active");
   if (act && scroll) act.scrollIntoView({ block: "nearest" });
   if (act && state.editing) { var ed = el.querySelector("#editor"); if (ed) { ed.focus(); placeCaretEnd(ed); } }
-  showPageOf(cur());
+  updateSelection();
+  centerSelection();
 }
 function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function placeCaretEnd(el) {
@@ -192,34 +205,60 @@ function placeCaretEnd(el) {
   var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
 }
 
-// ===== 页图 =====
-function showPageOf(b) {
-  if (!b) { clearBbox(); return; }
-  var img = document.getElementById("pageimg");
-  if (state.curPage !== b.page || !img.src) {
-    state.curPage = b.page;
-    img.src = pageSrc(b.page);
-    img.onload = function () { drawBbox(cur()); };
+// ===== 页图：连续滚动，全部页一次铺开，选中块的高亮框始终居中 =====
+var PAGES = []; // PAGES[p] = {box, img, bbox}
+function buildPages() {
+  var host = document.getElementById("pages");
+  var html = "";
+  for (var p = 1; p <= DATA.pages.length; p++)
+    html += "<div class='pagebox' data-p='" + p + "'><img loading='lazy' alt=''><div class='bbox'></div></div>";
+  host.innerHTML = html;
+  PAGES = [null];
+  var boxes = host.querySelectorAll(".pagebox");
+  for (var i = 0; i < boxes.length; i++) {
+    var p = i + 1;
+    var img = boxes[i].querySelector("img");
+    img.onerror = (function (box) { return function () {
+      if (!box.querySelector(".imgfail")) {
+        var d = document.createElement("div"); d.className = "imgfail";
+        d.textContent = "页图加载失败 —— 点书架里的「渲染页图」重新生成";
+        box.appendChild(d);
+      }
+    }; })(boxes[i]);
+    img.onload = (function (img) { return function () { applyWidth(img.parentNode); }; })(img);
+    img.src = pageSrc(p);
+    PAGES.push({ box: boxes[i], img: img, bbox: boxes[i].querySelector(".bbox") });
   }
-  drawBbox(b);
 }
-function drawBbox(b) {
-  var box = document.getElementById("bbox");
-  if (!b) { box.style.display = "none"; return; }
-  var img = document.getElementById("pageimg");
-  var pg = DATA.pages[b.page - 1];
-  var wrap = document.getElementById("imgwrap");
-  var w = state.zoomFit ? Math.min(imgpane().clientWidth - 24, img.naturalWidth) : img.naturalWidth;
-  var k = w / pg.w;
-  wrap.style.width = w + "px";
-  img.style.width = w + "px";
+function pageWidth(pg) {
+  var nat = pg.img.naturalWidth || 748; // 未加载完成时先按 scale2 常见宽度占位
+  return state.zoomFit ? Math.max(320, Math.min(imgpane().clientWidth - 32, nat)) : nat;
+}
+function applyWidth(pg) {
+  var w = pageWidth(pg);
+  pg.box.style.width = w + "px";
+  pg.img.style.width = w + "px";
+}
+function updateSelection() {
+  for (var i = 1; i < PAGES.length; i++) PAGES[i].bbox.style.display = "none";
+  var b = cur();
+  if (!b || !PAGES[b.page]) return;
+  var pg = PAGES[b.page];
+  applyWidth(pg);
+  var k = pg.img.clientWidth / DATA.pages[b.page - 1].w;
+  var box = pg.bbox;
   box.style.display = "block";
   box.style.left = b.bbox.x0 * k - 3 + "px";
   box.style.top = b.bbox.y0 * k - 3 + "px";
   box.style.width = (b.bbox.x1 - b.bbox.x0) * k + 6 + "px";
   box.style.height = (b.bbox.y1 - b.bbox.y0) * k + 6 + "px";
 }
-function clearBbox() { document.getElementById("bbox").style.display = "none"; }
+function centerSelection() {
+  var b = cur();
+  if (b && PAGES[b.page] && PAGES[b.page].bbox.style.display === "block")
+    PAGES[b.page].bbox.scrollIntoView({ block: "center" });
+}
+function clearBbox() { updateSelection(); }
 function imgpane() { return document.getElementById("imgpane"); }
 
 // ===== 动作实现 =====
@@ -248,6 +287,35 @@ function commitEdit() {
   if (newText !== b.text) { push("edit", b, { text: newText }); toast("已改文 " + b.id); }
   state.editing = false;
   renderAll();
+}
+
+// ===== 手动结构对齐：把标题块标进层级树，大纲即导航 =====
+function doStructure(n) {
+  var b = cur(); if (!b) return;
+  push("structure", b, { level: n });
+  toast(b.id + " → 结构 L" + n);
+  state.levelMode = false; modebar("");
+  renderAll();
+}
+function renderOutline() {
+  var host = document.getElementById("outline");
+  var items = [];
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var b = DATA.blocks[i];
+    if (b.type === "structure" && b.level) items.push(b);
+  }
+  items.sort(function (x, y) { return x.page - y.page || x.bbox.y0 - y.bbox.y0; });
+  if (!items.length) {
+    host.innerHTML = "<div class='ol-empty'>结构树为空 —— 选中标题块按 <b>H</b> 标层级（1 章 / 2 节 / 3 目）</div>";
+    return;
+  }
+  var html = "";
+  for (var j = 0; j < items.length; j++) {
+    var t = items[j];
+    html += "<div class='ol-item lv" + t.level + "' data-id='" + t.id + "' title='跳到该块'>"
+      + esc(t.text.slice(0, 24)) + "<span class='ol-pg'>" + t.page + "</span></div>";
+  }
+  host.innerHTML = "<div class='ol-head'>结构 · " + items.length + "</div>" + html;
 }
 
 // ===== 导航 =====
@@ -307,16 +375,29 @@ document.getElementById("blocklist").addEventListener("click", function (e) {
   state.idx = Number(blk.getAttribute("data-i"));
   renderList(false);
 });
-window.addEventListener("resize", function () { drawBbox(cur()); });
+document.getElementById("outline").addEventListener("click", function (e) {
+  var it = e.target.closest(".ol-item");
+  if (!it || state.editing) return;
+  var id = it.getAttribute("data-id");
+  var idx = binBlocksOf(3).findIndex(function (b) { return b.id === id; }); // 全部箱
+  if (idx < 0) return;
+  state.bin = 3; state.idx = idx;
+  renderAll();
+});
+window.addEventListener("resize", function () {
+  for (var i = 1; i < PAGES.length; i++) applyWidth(PAGES[i]);
+  updateSelection();
+});
 function nudgePage(d) {
-  var p = Math.min(DATA.pages.length, Math.max(1, (cur() ? cur().page : 1) + d));
-  state.curPage = 0; showPageOf({ page: p, bbox: null });
-  document.getElementById("bbox").style.display = "none";
+  var b = cur();
+  var p = Math.min(DATA.pages.length, Math.max(1, (b ? b.page : 1) + d));
+  if (PAGES[p]) PAGES[p].img.scrollIntoView({ block: "center" });
 }
 function toggleZoom() {
   state.zoomFit = !state.zoomFit;
   toast(state.zoomFit ? "适宽" : "原始尺寸（滚轮平移）");
-  drawBbox(cur());
+  for (var i = 1; i < PAGES.length; i++) applyWidth(PAGES[i]);
+  updateSelection();
 }
 
 document.addEventListener("keydown", function (e) {
@@ -329,6 +410,11 @@ document.addEventListener("keydown", function (e) {
   if (state.typeMode) {
     if (e.key >= "1" && e.key <= "6") { e.preventDefault(); doReclassify(Number(e.key)); }
     else if (e.key === "Escape") { state.typeMode = false; modebar(""); }
+    return;
+  }
+  if (state.levelMode) {
+    if (e.key >= "1" && e.key <= "3") { e.preventDefault(); doStructure(Number(e.key)); }
+    else if (e.key === "Escape") { state.levelMode = false; modebar(""); }
     return;
   }
   switch (e.key) {
@@ -345,6 +431,12 @@ document.addEventListener("keydown", function (e) {
       modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）");
       break;
     }
+    case "h": {
+      if (!cur()) break;
+      state.levelMode = true;
+      modebar("结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消；块将标记为 structure 并进大纲）");
+      break;
+    }
     case "i": toggleZoom(); break;
     case ",": nudgePage(-1); break;
     case ".": nudgePage(1); break;
@@ -356,6 +448,7 @@ document.addEventListener("keydown", function (e) {
 // ===== 启动 =====
 document.getElementById("title").textContent = DATA.title + " —— 人工校对 #1（对照页图）";
 replayMirror();
+buildPages();
 renderAll();
 </script>
 </body>

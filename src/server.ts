@@ -55,23 +55,26 @@ function slugify(s: string): string {
   const ascii = s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return ascii || "b" + Date.now().toString(36);
 }
-function importBook(body: { pdfPath?: string; title?: string; id?: string }): BookMeta {
-  const pdf = body.pdfPath?.trim().replace(/^~(?=$|\/|\\)/, process.env.USERPROFILE ?? "");
-  if (!pdf || !pdf.toLowerCase().endsWith(".pdf")) throw new Error("需要 PDF 路径");
-  const src = path.resolve(pdf);
-  if (!existsSync(src) || !statSync(src).isFile()) throw new Error(`文件不存在 ${src}`);
-  const title = body.title?.trim();
-  if (!title) throw new Error("需要书名");
+function importBookData(title: string, idGiven: string | undefined, pdf: Buffer, origin: string): BookMeta {
+  if (!title?.trim()) throw new Error("需要书名");
+  if (pdf.length < 5 || pdf.subarray(0, 5).toString("latin1") !== "%PDF-") throw new Error("不是 PDF 文件");
   const books = loadRegistry();
-  let id = (body.id?.trim() || slugify(title)).replace(/[\\/\0]/g, "");
+  let id = (idGiven?.trim() || slugify(title)).replace(/[\\/\0]/g, "");
   if (books.some((b) => b.id === id)) throw new Error(`书号 ${id} 已被占用`);
   const dir = bookDir(id);
   mkdirSync(path.join(dir, "inbox", "processed"), { recursive: true });
-  copyFileSync(src, pathsFor(id).source); // 红线：图书馆只读，科目一律先复制
-  const meta: BookMeta = { id, title, createdAt: new Date().toISOString(), origin: src };
+  writeFileSync(pathsFor(id).source, pdf); // 红线：图书馆只读，导入即复制
+  const meta: BookMeta = { id, title: title.trim(), createdAt: new Date().toISOString(), origin };
   books.push(meta);
   saveRegistry(books);
   return meta;
+}
+function importBook(body: { pdfPath?: string; title?: string; id?: string }): BookMeta {
+  const p = body.pdfPath?.trim().replace(/^~(?=$|\/|\\)/, process.env.USERPROFILE ?? "");
+  if (!p || !p.toLowerCase().endsWith(".pdf")) throw new Error("需要 PDF 路径");
+  const src = path.resolve(p);
+  if (!existsSync(src) || !statSync(src).isFile()) throw new Error(`文件不存在 ${src}`);
+  return importBookData(body.title ?? "", body.id, readFileSync(src), src);
 }
 
 // ---------- HTTP ----------
@@ -111,6 +114,15 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/api/books" && req.method === "POST") {
       json(res, 200, importBook(await readBody(req)));
+      return;
+    }
+    if (p === "/api/books/upload" && req.method === "POST") {
+      // 文件资源管理器导入：浏览器端选文件，原始字节直传（无 multipart 依赖）
+      const q = url.searchParams;
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      json(res, 200, importBookData(q.get("title") ?? "", q.get("id") ?? undefined,
+        Buffer.concat(chunks), q.get("name") ?? "本机文件"));
       return;
     }
     const bookTask = p.match(/^\/api\/books\/([^/]+)\/tasks$/);

@@ -76,21 +76,25 @@ async function renderShelf() {
     <div class="row">
       <input type="text" id="f-title" placeholder="书名（如：为何一切尚未消失）">
       <input type="text" id="f-id" placeholder="书号（可选，英文短横线）" style="flex:.5">
-      <input type="text" id="f-pdf" placeholder="PDF 路径（本机路径，图书馆原件只读、导入即复制）">
+      <input type="file" id="f-pdf" accept=".pdf,application/pdf">
       <button class="primary" id="f-go">导入</button>
     </div>
-    <div class="hint">源 PDF 会被复制进这本书自己的目录；图书馆原件永远只读。</div>
+    <div class="hint">点导入会弹出文件资源管理器选 PDF；源文件复制进这本书自己的目录，图书馆原件永远只读。</div>
     <div class="err" id="f-err"></div></div>`);
   main.appendChild(imp);
   imp.querySelector("#f-go").onclick = async () => {
     const err = imp.querySelector("#f-err");
     err.textContent = "";
     try {
-      const m = await api("/api/books", {
+      const f = imp.querySelector("#f-pdf").files[0];
+      if (!f) throw new Error("先选一个 PDF 文件");
+      const q = new URLSearchParams({
         title: imp.querySelector("#f-title").value,
         id: imp.querySelector("#f-id").value,
-        pdfPath: imp.querySelector("#f-pdf").value,
+        name: f.name,
       });
+      const m = await fetch("/api/books/upload?" + q.toString(), { method: "POST", body: f })
+        .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
       openBook(m.id);
     } catch (e) { err.textContent = "导入失败：" + e.message; }
   };

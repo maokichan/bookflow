@@ -50,6 +50,7 @@ export interface Block {
   state: BlockState;
   text: string;
   bold: boolean;
+  level?: number; // 结构块的层级（1 章 / 2 节 / 3 目…），人工结构对齐写入；其余块无此字段
   findings: unknown[]; // MVP：机器条子未启用，结构预留
   history: HistoryEntry[];
 }

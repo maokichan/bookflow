@@ -40,7 +40,11 @@ class NapiCanvasFactory {
 
 const BOOK = argBook();
 const PDF_PATH = pathsFor(BOOK).source; // 科目源在注册表里，已随导入复制为 source.pdf
-const SCALE = Number(process.argv[2] ?? 2); // 2× ≈ 144 DPI，屏幕对照够用
+const SCALE = Number(process.argv.find((a) => a.startsWith("--scale="))?.split("=")[1] ?? 2); // 2× ≈ 144 DPI
+if (!Number.isFinite(SCALE) || SCALE <= 0) {
+  console.error(`非法缩放 ${SCALE}`);
+  process.exit(1);
+}
 
 const buf = readFileSync(PDF_PATH);
 const doc = await pdfjsLib.getDocument({

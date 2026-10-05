@@ -55,6 +55,10 @@ r = run("src/renderpages.ts");
 if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
 const pngs = readdirSync(P.pagesDir).filter((f) => f.endsWith(".png"));
 ok(pngs.length === g.pages.length, `PNG ${pngs.length} 张`);
+// 尺寸护栏：渲染出占位白图（曾因参数误读缩放为 NaN）在这里当场拦下
+const dim = (f: string) => { const b = readFileSync(path.join(P.pagesDir, f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+const [w1, h1] = dim("p001.png");
+ok(w1 >= 600 && h1 >= 800, `页图尺寸 ${w1}×${h1}（scale2 应约 750×1170）`);
 
 console.log("▶ 3/5 工作台导出");
 r = run("src/exportwb.ts");
