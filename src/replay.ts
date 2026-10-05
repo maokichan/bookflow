@@ -47,12 +47,17 @@ for (const f of logs) {
       }
       b.type = a.payload.type;
     } else if (a.action === "structure") {
-      // 手动结构对齐：块标进层级树（1 章 / 2 节 / 3 目…），同时定型为结构块
-      if (!Number.isInteger(a.payload?.level) || a.payload.level < 1 || a.payload.level > 6) {
+      // 手动结构对齐：块标进角色 + 层级（封面/目录=0 特殊节点，1 章 2 节 3 目…）
+      const ROLES = new Set(["封面", "目录", "前言", "导论", "章", "节", "目", "附录", "后记", "参考文献"]);
+      if (!Number.isInteger(a.payload?.level) || a.payload.level < 0 || a.payload.level > 6) {
         report.rejected.push(`${where} ${b.id} 非法结构层级 ${a.payload?.level}`); continue;
+      }
+      if (a.payload.role && !ROLES.has(a.payload.role)) {
+        report.rejected.push(`${where} ${b.id} 未知结构角色 ${a.payload.role}`); continue;
       }
       b.type = "structure";
       b.level = a.payload.level;
+      b.role = a.payload.role;
     } else if (a.action === "merge") {
       // 跨页拼合：b 吸收 payload.absorb 指向的块（同类型、相邻、未被吸收过才放行）
       const target = findBlock(g, a.payload?.absorb);

@@ -6,5 +6,6 @@ library/*/pages/
 library/*/workbench.html
 library/*/tasks.jsonl
 library/config.json
+.home.json
 __pycache__/
 .server.log

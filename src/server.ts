@@ -4,13 +4,14 @@
 // 队列当前串行（并发度是配置不是架构），任务并行产出各自产物，块图唯一写者不变。
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { ROOT } from "./model.ts";
-import { LIBRARY, loadRegistry, saveRegistry, bookDir, pathsFor, deriveStage, progress, BEHAVIORS, BEHAVIOR_STEPS, type BookMeta } from "./library.ts";
+import { loadRegistry, saveRegistry, bookDir, pathsFor, deriveStage, progress, libraryRoot, homeConfigured, setLibraryRoot, BEHAVIORS, BEHAVIOR_STEPS, type BookMeta } from "./library.ts";
+import { renderPagesToBuffers, pdfPageCount, FX_DEFAULTS, fxHash, type Fx } from "./pageimg.ts";
 
 const PORT = Number(process.env.BOOKFLOW_PORT ?? 8477);
-const CONFIG = path.join(LIBRARY, "config.json"); // 功能层级：引擎配置的家（含密钥，不入库）
+const CONFIG = () => path.join(libraryRoot(), "config.json"); // 功能层级：引擎配置的家（含密钥，不入库）
 
 // ---------- 任务队列（串行起步；复合行为按步链执行，如 识别 = 抽取→页图→工作台） ----------
 interface Task {
@@ -55,9 +56,33 @@ function spawnStep(t: Task): void {
     t.endedAt = new Date().toISOString();
     t.output = out.slice(-4000);
     try { appendFileSync(pathsFor(t.book).tasks, JSON.stringify(t) + "\n"); } catch {}
+    if (code === 0) {
+      try {
+        if (t.behavior === "process") snapshot(t.book, "识别完成");
+        else if (t.behavior === "replay") snapshot(t.book, "回放后");
+      } catch {}
+    }
     running = false;
     pump();
   });
+}
+
+// ---------- 版本：书籍处理状态的完整快照（git 风格；手动的全留，自动的清到最近 20 个） ----------
+function snapshot(book: string, label?: string): any {
+  const P = pathsFor(book);
+  const vdir = path.join(P.dir, "versions");
+  mkdirSync(vdir, { recursive: true });
+  const g = JSON.parse(readFileSync(P.graph, "utf-8"));
+  const done = g.blocks.filter((b: any) => b.state === "原文已定").length;
+  const list = readdirSync(vdir).filter((f) => f.endsWith(".json"));
+  const v = list.length ? Math.max(...list.map((f) => JSON.parse(readFileSync(path.join(vdir, f), "utf-8")).v ?? 0)) + 1 : 1;
+  const snap = { v, label: label ?? "", ts: new Date().toISOString(), blocks: g.blocks.length, done, graph: g };
+  const name = `v${String(v).padStart(3, "0")}.json`;
+  writeFileSync(path.join(vdir, name), JSON.stringify(snap), "utf-8");
+  const autos = list.map((f) => ({ f, j: JSON.parse(readFileSync(path.join(vdir, f), "utf-8")) }))
+    .filter((x) => !x.j.label).sort((a, b) => b.j.v - a.j.v);
+  for (const old of autos.slice(19)) rmSync(path.join(vdir, old.f)); // 自动版留最近 20
+  return { v, label: snap.label, ts: snap.ts };
 }
 
 // ---------- 科目导入：书被项目记住的第一步 ----------
@@ -117,19 +142,34 @@ const server = createServer(async (req, res) => {
       res.end(html);
       return;
     }
+    if (p === "/api/home" && req.method === "GET") {
+      json(res, 200, { configured: homeConfigured(), libraryRoot: libraryRoot() });
+      return;
+    }
+    if (p === "/api/home" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!body.path) { json(res, 400, { error: "需要存储路径" }); return; }
+      setLibraryRoot(body.path);
+      json(res, 200, { configured: true, libraryRoot: libraryRoot() });
+      return;
+    }
     if (p === "/api/books" && req.method === "GET") {
       const inflight = new Set(tasks.filter((t) => t.status === "queued" || t.status === "running").map((t) => t.book));
-      json(res, 200, loadRegistry().map((m) => ({ ...m, stage: deriveStage(m.id), progress: progress(m.id), inflight: inflight.has(m.id) })));
+      json(res, 200, loadRegistry().map((m) => {
+        const P = pathsFor(m.id);
+        const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
+        return { ...m, stage: deriveStage(m.id), progress: progress(m.id), params, inflight: inflight.has(m.id) };
+      }));
       return;
     }
     if (p === "/api/config" && req.method === "GET") {
-      json(res, 200, existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, "utf-8")) : {});
+      json(res, 200, existsSync(CONFIG()) ? JSON.parse(readFileSync(CONFIG(), "utf-8")) : {});
       return;
     }
     if (p === "/api/config" && req.method === "POST") {
       const body = await readBody(req);
-      mkdirSync(LIBRARY, { recursive: true });
-      writeFileSync(CONFIG, JSON.stringify(body, null, 2), "utf-8");
+      mkdirSync(libraryRoot(), { recursive: true });
+      writeFileSync(CONFIG(), JSON.stringify(body, null, 2), "utf-8");
       json(res, 200, { ok: true });
       return;
     }
@@ -160,7 +200,9 @@ const server = createServer(async (req, res) => {
       const id = decodeURIComponent(bookDetail[1]);
       const meta = findBook(id);
       if (!meta) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
-      json(res, 200, { ...meta, stage: deriveStage(id), progress: progress(id) });
+      const P = pathsFor(id);
+      const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
+      json(res, 200, { ...meta, stage: deriveStage(id), progress: progress(id), params });
       return;
     }
     const bookParams = p.match(/^\/api\/books\/([^/]+)\/params$/);
@@ -168,8 +210,9 @@ const server = createServer(async (req, res) => {
       const id = decodeURIComponent(bookParams[1]);
       if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
       const P = pathsFor(id);
+      const stored: any = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : {};
       if (req.method === "GET") {
-        json(res, 200, existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : { contrast: 100, denoise: 0, sharpen: 0 });
+        json(res, 200, { contrast: 100, denoise: 0, sharpen: 0, ocr: { engine: "textlayer" }, ...stored });
         return;
       }
       if (req.method === "POST") {
@@ -179,11 +222,84 @@ const server = createServer(async (req, res) => {
           denoise: body.denoise ? 1 : 0,
           sharpen: Math.min(200, Math.max(0, Number(body.sharpen) || 0)),
         };
-        mkdirSync(pathsFor(id).dir, { recursive: true });
-        writeFileSync(P.params, JSON.stringify(fx, null, 2), "utf-8");
-        json(res, 200, fx);
+        // 参数一变，产物过期：确认作废，须重新「确定预处理」
+        const changed = !stored.confirmedAt
+          || stored.contrast !== fx.contrast || stored.denoise !== fx.denoise || stored.sharpen !== fx.sharpen;
+        const next = {
+          ...stored, ...fx,
+          confirmedAt: changed ? null : stored.confirmedAt,
+          fxHash: changed ? null : stored.fxHash,
+          ocr: { engine: body.ocr?.engine ?? stored.ocr?.engine ?? "textlayer" },
+        };
+        mkdirSync(P.dir, { recursive: true });
+        writeFileSync(P.params, JSON.stringify(next, null, 2), "utf-8");
+        json(res, 200, next);
         return;
       }
+    }
+    const bookConfirm = p.match(/^\/api\/books\/([^/]+)\/preprocess\/confirm$/);
+    if (bookConfirm && req.method === "POST") {
+      // 确定预处理：产物指纹落定 + 全量按参数重渲（页图集合即产物），完成后才能识别
+      const id = decodeURIComponent(bookConfirm[1]);
+      if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const P = pathsFor(id);
+      const stored: any = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : {};
+      const fx = { contrast: stored.contrast ?? 100, denoise: stored.denoise ?? 0, sharpen: stored.sharpen ?? 0 };
+      const next = { ...stored, ...fx, confirmedAt: new Date().toISOString(), fxHash: fxHash(fx) };
+      writeFileSync(P.params, JSON.stringify(next, null, 2), "utf-8");
+      enqueue(id, "reprocess");
+      json(res, 200, next);
+      return;
+    }
+    const bookSamples = p.match(/^\/api\/books\/([^/]+)\/samples$/);
+    if (bookSamples && req.method === "GET") {
+      // 预处理采样：按百分比取页，单页低倍率现场渲染（同参数 = 同输出，不入产物）
+      const id = decodeURIComponent(bookSamples[1]);
+      if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const P = pathsFor(id);
+      const pct = (url.searchParams.get("pct") ?? "5,30,55,80").split(",").map(Number).filter((x) => x > 0 && x <= 100);
+      const stored: any = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : {};
+      const fx: Fx = { ...FX_DEFAULTS, contrast: stored.contrast ?? 100, denoise: stored.denoise ?? 0, sharpen: stored.sharpen ?? 0 };
+      const total = await pdfPageCount(P.source);
+      const pages = [...new Set(pct.map((x) => Math.min(total, Math.max(1, Math.round((x / 100) * total)))))];
+      const results = await renderPagesToBuffers(P.source, pages, 1, fx);
+      json(res, 200, {
+        fx, total,
+        samples: results.map((r) => ({ page: r.page, src: "data:image/png;base64," + Buffer.from(r.png).toString("base64") })),
+      });
+      return;
+    }
+    const bookVersions = p.match(/^\/api\/books\/([^/]+)\/versions$/);
+    if (bookVersions) {
+      const id = decodeURIComponent(bookVersions[1]);
+      if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const vdir = path.join(pathsFor(id).dir, "versions");
+      if (bookVersions[0].endsWith("/versions") && req.method === "GET") {
+        mkdirSync(vdir, { recursive: true });
+        const list = readdirSync(vdir).filter((f) => f.endsWith(".json")).sort().map((f) => {
+          const j = JSON.parse(readFileSync(path.join(vdir, f), "utf-8"));
+          return { file: f, v: j.v, label: j.label, ts: j.ts, blocks: j.blocks, done: j.done };
+        });
+        json(res, 200, list.reverse());
+        return;
+      }
+      if (bookVersions[0].endsWith("/versions") && req.method === "POST") {
+        json(res, 200, snapshot(id, (await readBody(req)).label));
+        return;
+      }
+    }
+    const bookRestore = p.match(/^\/api\/books\/([^/]+)\/versions\/([^/]+)\/restore$/);
+    if (bookRestore && req.method === "POST") {
+      const id = decodeURIComponent(bookRestore[1]);
+      const vf = path.join(pathsFor(id).dir, "versions", path.basename(decodeURIComponent(bookRestore[2])) + ".json");
+      if (!existsSync(vf)) { json(res, 404, { error: "版本不存在" }); return; }
+      const snap = JSON.parse(readFileSync(vf, "utf-8"));
+      const P = pathsFor(id);
+      const tmp = P.graph + ".tmp";
+      writeFileSync(tmp, JSON.stringify(snap.graph, null, 2), "utf-8");
+      renameSync(tmp, P.graph); // 原子恢复
+      json(res, 200, { ok: true, restored: snap.v });
+      return;
     }
     if (p === "/api/tasks" && req.method === "GET") {
       json(res, 200, tasks.slice(0, 100));
@@ -205,8 +321,9 @@ function findBook(id: string): BookMeta | undefined {
 
 // 静态：只服务 library/ 内的文件（页图、工作台），防目录穿越
 function serveLibrary(rel: string, res: import("node:http").ServerResponse): void {
-  const full = path.normalize(path.join(LIBRARY, decodeURIComponent(rel)));
-  if (!full.startsWith(LIBRARY) || !existsSync(full) || !statSync(full).isFile()) {
+  const root = libraryRoot();
+  const full = path.normalize(path.join(root, decodeURIComponent(rel)));
+  if (!full.startsWith(root) || !existsSync(full) || !statSync(full).isFile()) {
     res.writeHead(404); res.end("not found"); return;
   }
   res.writeHead(200, { "content-type": MIME[path.extname(full)] ?? "application/octet-stream" });

@@ -150,7 +150,7 @@ function applyToBlock(b, action, payload) {
   if (action === "gate") b.state = payload.state;
   else if (action === "edit") b.text = payload.text;
   else if (action === "reclassify") b.type = payload.type;
-  else if (action === "structure") { b.type = "structure"; b.level = payload.level; }
+  else if (action === "structure") { b.type = "structure"; b.level = payload.level; b.role = payload.role; }
   else if (action === "merge") {
     var m = DATA.blocks.find(function (x) { return x.id === payload.absorb; });
     if (m) { b.text = joinPara(b.text, m.text); m.absorbedInto = b.id; }
@@ -168,7 +168,7 @@ function replayMirror() {
       if (ok) b.state = a.payload.state;
     } else if (a.action === "edit") b.text = a.payload.text;
     else if (a.action === "reclassify") b.type = a.payload.type;
-    else if (a.action === "structure") { b.type = "structure"; b.level = a.payload.level; }
+    else if (a.action === "structure") { b.type = "structure"; b.level = a.payload.level; b.role = a.payload.role; }
     else if (a.action === "merge") {
       var m = DATA.blocks.find(function (x) { return x.id === a.payload.absorb; });
       if (m && !m.absorbedInto) { b.text = joinPara(b.text, m.text); m.absorbedInto = b.id; }
@@ -203,7 +203,7 @@ function renderCurrent() {
     card.classList.remove("editing");
   } else {
     document.getElementById("cid").textContent = b.id;
-    document.getElementById("ctype").textContent = b.type + (b.type === "structure" && b.level ? " L" + b.level : "") + " · " + b.state;
+    document.getElementById("ctype").textContent = b.type + (b.role ? " " + b.role : "") + (b.level ? " L" + b.level : "") + " · " + b.state;
     document.getElementById("ccount").textContent = (state.idx + 1) + " / " + q.length;
     var ct2 = document.getElementById("ctext");
     ct2.textContent = b.text;
@@ -231,7 +231,7 @@ function renderOutline() {
   var items = [], counts = {};
   for (var i = 0; i < DATA.blocks.length; i++) {
     var b = DATA.blocks[i];
-    if (b.type === "structure" && b.level) items.push(b);
+    if (b.type === "structure") items.push(b);
     if (own[b.id] && b.id !== own[b.id]) counts[own[b.id]] = (counts[own[b.id]] ?? 0) + 1;
   }
   items.sort(function (x, y) { return x.page - y.page || x.bbox.y0 - y.bbox.y0; });
@@ -239,7 +239,7 @@ function renderOutline() {
   var html = "";
   for (var j = 0; j < items.length; j++) {
     var t = items[j];
-    html += "<div class='ol-item lv" + t.level + "' data-id='" + t.id + "'>"
+    html += "<div class='ol-item lv" + Math.max(1, t.level || 1) + "' data-id='" + t.id + "'>"
       + esc(t.text.slice(0, 20)) + "<span class='opg'>" + t.page + " · " + (counts[t.id] ?? 0) + "块</span></div>";
   }
   host.innerHTML = "<div class='rh'>结构 · 括号内为归属块数</div>" + html;
@@ -261,14 +261,6 @@ function doReclassify(n) {
   push("reclassify", b, { type: t });
   toast(b.id + " → " + t);
   state.typeMode = false; modebar("");
-  renderAll();
-  if (cur() === b) move(1); // 裁决完即下一个
-}
-function doStructure(n) {
-  var b = cur(); if (!b) return;
-  push("structure", b, { level: n });
-  toast(b.id + " → 结构 L" + n);
-  state.levelMode = false; modebar("");
   renderAll();
   if (cur() === b) move(1); // 裁决完即下一个
 }
@@ -297,18 +289,41 @@ function doMerge() {
   renderAll(); // 拼合后的块仍是当前条目，继续审它
 }
 
-// ===== 结构辅助：按编号模式建议层级（手动为主，系统填"是几级"） =====
-function suggestLevel(t) {
+// ===== 结构辅助：角色 + 层级（封面/目录/前言…都是结构；编号模式给建议，手动为准） =====
+var ROLES = ["封面", "目录", "前言", "导论", "章", "节", "目", "附录", "后记", "参考文献"];
+var ROLE_LEVEL = { "封面": 0, "目录": 0, "前言": 1, "导论": 1, "章": 1, "节": 2, "目": 3, "附录": 1, "后记": 1, "参考文献": 1 };
+function suggestRole(t) {
   t = (t || "").trim();
-  if (!t) return 0;
-  if (/^(第[一二三四五六七八九十百0-9]+(章|部|编|篇))/.test(t)) return 1;
-  if (/^(Part|Chapter)\s*[0-9一二三四五六七八九十]/i.test(t)) return 1;
-  if (/^(第[一二三四五六七八九十百0-9]+(节|讲|回))/.test(t)) return 2;
-  if (/^[一二三四五六七八九十]+、/.test(t)) return 2;
-  if (/^\d+\.\d+(?!\.\d)/.test(t)) return 2;
-  if (/^\d+\.\d+\.\d+/.test(t)) return 3;
-  if (/^[（(][一二三四五六七八九十1-9]+[)）]/.test(t)) return 3;
-  return 0;
+  if (!t) return null;
+  for (var i = 0; i < ROLES.length; i++) {
+    var r = ROLES[i];
+    if (r === "章" || r === "节" || r === "目") continue;
+    if (t.indexOf(r) === 0) return { role: r, level: ROLE_LEVEL[r] };
+  }
+  if (/^序(言|文)?|^绪论|^引言/.test(t)) return { role: "前言", level: 1 };
+  if (/^(第[一二三四五六七八九十百0-9]+(章|部|编|篇))/.test(t)) return { role: "章", level: 1 };
+  if (/^(Part|Chapter)\s*[0-9]/i.test(t)) return { role: "章", level: 1 };
+  if (/^(第[一二三四五六七八九十百0-9]+(节|讲|回))/.test(t)) return { role: "节", level: 2 };
+  if (/^[一二三四五六七八九十]+、/.test(t)) return { role: "节", level: 2 };
+  if (/^\d+\.\d+(?!\.\d)/.test(t)) return { role: "节", level: 2 };
+  if (/^\d+\.\d+\.\d+/.test(t)) return { role: "目", level: 3 };
+  return null;
+}
+function showRoleSuggest() {
+  var s = suggestRole(cur() ? cur().text : "");
+  state.suggest = s;
+  var menu = "1封面 2目录 3前言 4导论 5章 6节 7目 8附录 9后记 0参考文献";
+  modebar(s ? "结构 → 回车认建议 " + s.role + " L" + s.level + " · " + menu + " （Esc 取消）"
+            : "结构 → " + menu + " （Esc 取消）");
+}
+function doStructureRole(i) {
+  var b = cur(); if (!b) return;
+  var role = ROLES[i]; if (!role) return;
+  push("structure", b, { role: role, level: ROLE_LEVEL[role] });
+  toast(b.id + " → " + role + " L" + ROLE_LEVEL[role]);
+  state.levelMode = false; modebar("");
+  renderAll();
+  if (cur() === b) move(1);
 }
 
 // ===== 注释符：编辑态 N 键，按本页已有标记自增 =====
@@ -341,7 +356,7 @@ function owners() {
   for (var i = 0; i < DATA.blocks.length; i++) {
     var b = DATA.blocks[i];
     if (b.type === "furniture") continue;
-    if (b.type === "structure" && b.level) { owner = b.id; map[b.id] = owner; continue; }
+    if (b.type === "structure") { owner = b.id; map[b.id] = owner; continue; }
     if (owner) map[b.id] = owner;
   }
   return map;
@@ -441,6 +456,17 @@ function centerSelection() {
 }
 function center() { return document.getElementById("center"); }
 
+// ===== 版本：Ctrl+S 显式存版（走本地服务；file:// 下退化为导出日志） =====
+function saveVersion() {
+  var label = "校对至 " + (queue().length ? (queue().length - state.idx) + " 待定" : "已清");
+  if (!location.origin.startsWith("http")) { toast("file:// 下无法存版本 —— 从书架打开工作台"); return; }
+  fetch("/api/books/" + encodeURIComponent(DATA.bookId) + "/versions", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ label: label }),
+  }).then(function (r) { return r.json(); })
+    .then(function (j) { toast("已存版本 v" + j.v); })
+    .catch(function () { exportLog(); });
+}
+
 // ===== UI 反馈 =====
 var toastTimer = null;
 function toast(msg) {
@@ -480,7 +506,7 @@ document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
     var k = btn.getAttribute("data-k");
     if (k === "g") doGate(false);
     else if (k === "e") { if (cur()) { state.editing = true; renderCurrent(); } }
-    else if (k === "h") { if (cur()) { state.levelMode = true; showLevelSuggest(); } }
+    else if (k === "h") { if (cur()) { state.levelMode = true; showRoleSuggest(); } }
     else if (k === "t") { state.typeMode = true; modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）"); }
     else if (k === "m") doMerge();
     else if (k === "n") { if (state.editing) insertAtCaret(document.getElementById("ctext"), nextMarker()); }
@@ -506,6 +532,11 @@ function toggleZoom() {
 }
 
 document.addEventListener("keydown", function (e) {
+  if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+    e.preventDefault();
+    saveVersion();
+    return;
+  }
   if (e.isComposing || e.keyCode === 229) return; // IME 合成期不接键
   if (state.editing) {
     if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
@@ -522,8 +553,12 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   if (state.levelMode) {
-    if (e.key === "Enter" && state.suggest) { e.preventDefault(); doStructure(state.suggest); }
-    else if (e.key >= "1" && e.key <= "3") { e.preventDefault(); doStructure(Number(e.key)); }
+    if (e.key === "Enter" && state.suggest) { e.preventDefault(); doStructureRole(ROLES.indexOf(state.suggest.role)); }
+    else if (/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+      var i = e.key === "0" ? 9 : Number(e.key) - 1;
+      doStructureRole(i);
+    }
     else if (e.key === "Escape") { state.levelMode = false; modebar(""); }
     return;
   }
@@ -546,22 +581,16 @@ document.addEventListener("keydown", function (e) {
     case "h": {
       if (!cur()) break;
       state.levelMode = true;
-      showLevelSuggest();
+      showRoleSuggest();
       break;
     }
     case "i": toggleZoom(); break;
     case ",": nudgePage(-1); break;
     case ".": nudgePage(1); break;
-    case "s": case "S": e.preventDefault(); exportLog(); break;
+    case "s": if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); exportLog(); } break;
   }
 });
 
-function showLevelSuggest() {
-  state.suggest = suggestLevel(cur() ? cur().text : "");
-  modebar(state.suggest
-    ? "结构层级 → 回车认建议 L" + state.suggest + " · 或 1 章 2 节 3 目 （Esc 取消）"
-    : "结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消）");
-}
 
 // ===== 启动 =====
 document.getElementById("title").textContent = DATA.title + " —— 原文校对";

@@ -50,7 +50,8 @@ export interface Block {
   state: BlockState;
   text: string;
   bold: boolean;
-  level?: number; // 结构块的层级（1 章 / 2 节 / 3 目…），人工结构对齐写入；其余块无此字段
+  level?: number; // 结构块的层级（0 = 封面/目录等特殊节点，1 章 2 节 3 目…）
+  role?: string; // 结构角色：封面/目录/前言/导论/章/节/目/附录/后记/参考文献
   absorbedInto?: string; // 被拼合进的目标块 id（覆盖率守恒：显式吸收，不是消失）
   findings: unknown[]; // MVP：机器条子未启用，结构预留
   history: HistoryEntry[];

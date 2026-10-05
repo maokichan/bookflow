@@ -6,6 +6,7 @@ import { loadGraph } from "./model.ts";
 import { argBook, pathsFor } from "./library.ts";
 
 const P = pathsFor(argBook());
+const BOOK = P.dir.split(path.sep).pop(); // 书号（工作台用它调存版接口）
 const g = loadGraph(P.graph);
 if (!existsSync(P.pagesDir)) {
   console.error("页图目录不存在 —— 先对该书运行渲染");
@@ -13,12 +14,13 @@ if (!existsSync(P.pagesDir)) {
 }
 const tpl = readFileSync(path.join(import.meta.dirname, "workbench-template.html"), "utf-8");
 const payload = JSON.stringify({
+  bookId: BOOK,
   title: g.title,
   source: g.source,
   pages: g.pages,
   blocks: g.blocks.map((b) => ({
     id: b.id, page: b.page, bbox: b.bbox, type: b.type, state: b.state, text: b.text,
-    level: b.level,
+    level: b.level, role: b.role,
   })),
 }).replace(/<\/script>/gi, "<\\/script>");
 

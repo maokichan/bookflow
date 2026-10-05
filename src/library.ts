@@ -1,11 +1,29 @@
 // 书籍状态管理的数据面：科目注册表、每书路径、阶段推导。
 // 意图：书被项目记住（library/index.json），一切工具按书号寻址，不存在隐蔽默认科目。
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { ROOT } from "./model.ts";
 
-export const LIBRARY = path.join(ROOT, "library");
-const REGISTRY = path.join(LIBRARY, "index.json");
+// ---------- 存储位置：首用时在主界面确定，运行期所有产物与运行时文件都住在它下面 ----------
+const HOME_FILE = path.join(ROOT, ".home.json"); // 记录库根路径（机器相关，不入版本库）
+const DEFAULT_ROOT = path.join(ROOT, "library");
+
+export function libraryRoot(): string {
+  if (!existsSync(HOME_FILE)) return DEFAULT_ROOT;
+  try { return JSON.parse(readFileSync(HOME_FILE, "utf-8")).libraryRoot ?? DEFAULT_ROOT; }
+  catch { return DEFAULT_ROOT; }
+}
+export function homeConfigured(): boolean {
+  return existsSync(HOME_FILE);
+}
+export function setLibraryRoot(p: string): void {
+  const abs = path.resolve(p);
+  mkdirSync(abs, { recursive: true });
+  writeFileSync(HOME_FILE, JSON.stringify({ libraryRoot: abs }, null, 2), "utf-8");
+}
+
+export function LIBRARY(): string { return libraryRoot(); }
+const REGISTRY = () => path.join(libraryRoot(), "index.json");
 
 export interface BookMeta {
   id: string;
@@ -15,16 +33,17 @@ export interface BookMeta {
 }
 
 export function loadRegistry(): BookMeta[] {
-  if (!existsSync(REGISTRY)) return [];
-  return JSON.parse(readFileSync(REGISTRY, "utf-8")).books ?? [];
+  const f = REGISTRY();
+  if (!existsSync(f)) return [];
+  return JSON.parse(readFileSync(f, "utf-8")).books ?? [];
 }
 
 export function saveRegistry(books: BookMeta[]): void {
-  writeFileSync(REGISTRY, JSON.stringify({ books }, null, 2), "utf-8");
+  writeFileSync(REGISTRY(), JSON.stringify({ books }, null, 2), "utf-8");
 }
 
 export function bookDir(id: string): string {
-  const dir = path.join(LIBRARY, id);
+  const dir = path.join(libraryRoot(), id);
   if (!id || /[\\/\0]/.test(id) || id.startsWith(".")) throw new Error(`非法书号 ${id}`);
   return dir;
 }

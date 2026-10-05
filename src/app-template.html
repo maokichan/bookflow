@@ -107,6 +107,7 @@ const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-t
 
 const STAGES = [
   { key: "import", label: "导入" },
+  { key: "prep", label: "预处理" },
   { key: "process", label: "识别" },
   { key: "proof", label: "原文校对" },
   { key: "mt", label: "翻译" },
@@ -118,8 +119,13 @@ const BEHAVIOR_LABEL = { process: "识别", extract: "抽取", render: "页图",
 function nodeState(key, b, inflight) {
   const s = b.stage, pr = b.progress;
   if (key === "import") return "done";
+  if (key === "prep") {
+    if (inflight) return "run";
+    return b.params && b.params.confirmedAt ? "done" : "cur";
+  }
   if (key === "process") {
     if (inflight) return "run";
+    if (!(b.params && b.params.confirmedAt)) return "lock"; // 未确定预处理，识别不解锁
     return s.exported ? "done" : "cur";
   }
   if (key === "proof") return s.exported ? (pr.proofTotal && pr.proofDone >= pr.proofTotal ? "done" : "cur") : "lock";
@@ -182,10 +188,13 @@ async function renderBook(id) {
     const k = nodeState(st.key, b, inflight && st.key === "process");
     const cls = k === "done" ? "done" : k === "cur" ? "cur" : k === "run" ? "cur" : "";
     let sub = "", act = "";
+    if (st.key === "prep" && b.params && b.params.confirmedAt) sub = `${b.params.contrast}% / 降${b.params.denoise ? "开" : "关"} / 锐${b.params.sharpen}`;
     if (st.key === "proof" && s.exported) sub = `${pr.proofDone} / ${pr.proofTotal}`;
+    if (st.key === "prep" && k === "run") act = `<button class="ta" disabled>处理中…</button>`;
+    if (st.key === "prep" && k === "cur") act = `<button class="ta acc" data-a="prep">预处理</button>`;
     if (st.key === "process" && k === "run") act = `<button class="ta" disabled>识别中…</button>`;
+    if (st.key === "process" && k === "lock") act = `<span style="font-size:11px;color:var(--dim)">先完成预处理</span>`;
     if (st.key === "process" && k === "cur") act = `<button class="ta acc" data-a="process">识别</button>`;
-    if (st.key === "process" && (k === "done" || k === "cur")) act += ` <button class="ta" data-a="params" style="font-size:12.5px">参数</button>`;
     if (st.key === "proof" && s.exported) act = `<button class="ta acc" data-a="proof">校对</button>`;
     return `<div class="node ${cls}"><div class="dot"></div><div class="lb">${st.label}</div><div class="sub">${sub}</div><div class="act">${act}</div></div>`;
   }).join("");
@@ -200,6 +209,85 @@ async function renderBook(id) {
     </div>
     <div class="pipe"><div class="nodes">${nodes}</div></div>
   </div>`));
+
+  // 预处理内嵌面板：采样图 + 旁置参数 + 每书 OCR 引擎 + 确定门控
+  let prep = null;
+  if (b.params && !b.params.confirmedAt || (b.params && !b.params.confirmedAt) || (!b.params)) {
+    prep = $(`<div class="panel" id="prepanel" style="margin-top:26px">
+      <h2>预处理</h2>
+      <div class="row" style="align-items:flex-start">
+        <div id="fx-samples" style="display:flex;gap:10px;flex:1;min-height:180px;overflow-x:auto"></div>
+        <div style="width:210px;flex:none">
+          <label style="display:block;font-size:12.5px;color:var(--dim);margin:0 0 3px">对比度 %</label>
+          <input id="fx-c" type="text" style="width:100%;padding:5px 9px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
+          <label style="display:block;font-size:12.5px;color:var(--dim);margin:8px 0 3px">降噪 0/1</label>
+          <input id="fx-d" type="text" style="width:100%;padding:5px 9px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
+          <label style="display:block;font-size:12.5px;color:var(--dim);margin:8px 0 3px">锐化 0–200</label>
+          <input id="fx-s" type="text" style="width:100%;padding:5px 9px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
+          <label style="display:block;font-size:12.5px;color:var(--dim);margin:8px 0 3px">OCR 引擎</label>
+          <select id="fx-ocr" style="width:100%;padding:5px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
+            <option value="textlayer">文本层（免 OCR）</option>
+            <option value="cloud" disabled>云端 OCR（未点亮）</option>
+            <option value="local" disabled>本地 OCR（未点亮）</option>
+          </select>
+          <div class="row" style="margin-top:12px">
+            <button class="ta" id="fx-refresh">刷新采样</button>
+            <button class="ta acc" id="fx-confirm">确定预处理</button>
+          </div>
+        </div>
+      </div></div>`);
+    main.appendChild(prep);
+    const pc = prep.querySelector("#fx-c"), pd = prep.querySelector("#fx-d"), ps = prep.querySelector("#fx-s"), po = prep.querySelector("#fx-ocr");
+    pc.value = (b.params && b.params.contrast) ?? 100;
+    pd.value = (b.params && b.params.denoise) ?? 0;
+    ps.value = (b.params && b.params.sharpen) ?? 0;
+    po.value = (b.params && b.params.ocr && b.params.ocr.engine) || "textlayer";
+    const loadSamples = async () => {
+      const host = prep.querySelector("#fx-samples");
+      host.innerHTML = `<div style="color:var(--dim);font-size:12.5px">渲染采样…</div>`;
+      const q = new URLSearchParams({ pct: "5,30,55,80" });
+      const j = await fetch(`/api/books/${encodeURIComponent(id)}/samples?` + q).then((r) => r.json());
+      host.innerHTML = j.samples.map((s) => `<div style="flex:none"><img src="${s.src}" style="height:220px;display:block;border:1px solid var(--line)"><div style="font-size:11px;color:var(--dim);text-align:center">p${s.page}</div></div>`).join("");
+    };
+    loadSamples();
+    let debounce = null;
+    [pc, pd, ps].forEach((el) => el.addEventListener("change", () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(loadSamples, 400);
+    }));
+    prep.querySelector("#fx-refresh").onclick = loadSamples;
+    prep.querySelector("#fx-confirm").onclick = async () => {
+      await api(`/api/books/${encodeURIComponent(id)}/params`, {
+        contrast: Number(pc.value) || 100, denoise: Number(pd.value) || 0, sharpen: Number(ps.value) || 0,
+        ocr: { engine: po.value },
+      });
+      await api(`/api/books/${encodeURIComponent(id)}/preprocess/confirm`, {});
+      renderBook(id);
+    };
+  }
+
+  // 版本：显式存版 + 阶段自动存版，可恢复
+  const vers = await api(`/api/books/${encodeURIComponent(id)}/versions`);
+  if (vers.length) {
+    const vp = $(`<div class="panel" style="margin-top:26px"><h2>版本</h2></div>`);
+    for (const v of vers.slice(0, 8)) {
+      const row = $(`<div class="row" style="font-size:12.5px;color:var(--dim);line-height:2">
+        <span style="color:var(--ink);min-width:52px">v${v.v}</span>
+        <span style="flex:1">${esc(v.label || "自动")}</span>
+        <span>${v.blocks} 块 · 已定 ${v.done}</span>
+        <span>${(v.ts || "").slice(5, 16).replace("T", " ")}</span>
+        <button class="ta" data-v="${esc(v.file)}">恢复</button></div>`);
+      const btn = row.querySelector("button");
+      btn.onclick = async () => {
+        if (btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "确认恢复"; btn.classList.add("acc"); return; }
+        await api(`/api/books/${encodeURIComponent(id)}/versions/${encodeURIComponent(v.file)}/restore`, {});
+        toast("已恢复到 v" + v.v);
+        renderBook(id);
+      };
+      vp.appendChild(row);
+    }
+    main.appendChild(vp);
+  }
 
   const tk = $(`<div class="tasks"></div>`);
   for (const t of tasks) {
@@ -218,8 +306,8 @@ async function renderBook(id) {
       } else if (btn.dataset.a === "reprocess") {
         await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "reprocess" });
         renderBook(id);
-      } else if (btn.dataset.a === "params") {
-        openParams(id);
+      } else if (btn.dataset.a === "prep") {
+        togglePrepPanel(id);
       } else if (btn.dataset.a === "proof") {
         window.open(`/library/${encodeURIComponent(id)}/workbench.html`, "_blank");
       }
@@ -265,51 +353,6 @@ function toast(msg) {
   toastTimer = setTimeout(() => (t.style.display = "none"), 2600);
 }
 
-// ---------- 识别参数（前级：手动控制的图像规范化） ----------
-async function openParams(id) {
-  const fx = await api(`/api/books/${encodeURIComponent(id)}/params`);
-  let panel = document.getElementById("fxpanel");
-  if (!panel) {
-    panel = $(`<div id="fxpanel" style="position:fixed;inset:0;background:rgba(42,42,40,.35);display:none;z-index:50">
-      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--paper);border:1px solid var(--line);width:min(420px,92vw);padding:22px 26px">
-        <h3 style="font-size:15px;margin:0 0 6px">识别参数</h3>
-        <label style="display:block;font-size:12.5px;color:var(--dim);margin:10px 0 3px">对比度 %（100 不变）</label>
-        <input id="fx-c" type="text" style="width:100%;padding:6px 9px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
-        <label style="display:block;font-size:12.5px;color:var(--dim);margin:10px 0 3px">降噪（0 关 / 1 开）</label>
-        <input id="fx-d" type="text" style="width:100%;padding:6px 9px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
-        <label style="display:block;font-size:12.5px;color:var(--dim);margin:10px 0 3px">锐化 0–200（0 不变）</label>
-        <input id="fx-s" type="text" style="width:100%;padding:6px 9px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
-        <div style="display:flex;gap:18px;justify-content:flex-end;margin-top:20px">
-          <button class="ta" id="fx-close">关闭</button>
-          <button class="ta" id="fx-save">保存</button>
-          <button class="ta acc" id="fx-apply">保存并重渲</button>
-        </div>
-      </div></div>`);
-    document.body.appendChild(panel);
-  }
-  panel.querySelector("#fx-c").value = fx.contrast;
-  panel.querySelector("#fx-d").value = fx.denoise;
-  panel.querySelector("#fx-s").value = fx.sharpen;
-  panel.style.display = "block";
-  const gather = () => ({
-    contrast: Number(panel.querySelector("#fx-c").value) || 100,
-    denoise: Number(panel.querySelector("#fx-d").value) ? 1 : 0,
-    sharpen: Number(panel.querySelector("#fx-s").value) || 0,
-  });
-  panel.querySelector("#fx-close").onclick = () => (panel.style.display = "none");
-  panel.querySelector("#fx-save").onclick = async () => {
-    await api(`/api/books/${encodeURIComponent(id)}/params`, gather());
-    panel.style.display = "none";
-    toast("已保存");
-  };
-  panel.querySelector("#fx-apply").onclick = async () => {
-    await api(`/api/books/${encodeURIComponent(id)}/params`, gather());
-    panel.style.display = "none";
-    await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "reprocess" });
-    renderBook(id);
-  };
-}
-
 // ---------- 能力配置（功能层级：OCR 云端/本地、LLM） ----------
 const CFG_FIELDS = [
   ["c-ocrcloud-url", "ocr.cloud.url"], ["c-ocrcloud-key", "ocr.cloud.key"], ["c-ocrcloud-model", "ocr.cloud.model"],
@@ -338,7 +381,29 @@ document.getElementById("cfgSave").onclick = async () => {
   cfgEl.style.display = "none";
 };
 
-route();
+async function boot() {
+  const home = await api("/api/home");
+  if (!home.configured) {
+    document.getElementById("cfgBtn").style.display = "none";
+    const main = document.getElementById("main");
+    main.innerHTML = "";
+    const p = $(`<div class="panel" style="max-width:560px">
+      <h2 style="font-size:15px;margin:0 0 14px">存储位置</h2>
+      <div class="row">
+        <input type="text" id="h-path" style="flex:1;padding:6px 9px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px" value="${esc(home.libraryRoot)}">
+        <button class="ta acc" id="h-go">确定</button>
+      </div></div>`);
+    main.appendChild(p);
+    p.querySelector("#h-go").onclick = async () => {
+      await api("/api/home", { path: p.querySelector("#h-path").value });
+      document.getElementById("cfgBtn").style.display = "";
+      route();
+    };
+    return;
+  }
+  route();
+}
+boot();
 </script>
 </body>
 </html>
