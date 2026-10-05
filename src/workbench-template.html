@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>bookflow 工作台</title>
+<style>
+  :root {
+    --ink: #2a2a28; --paper: #faf9f6; --line: #d8d4cc; --dim: #8a857c;
+    --accent: #b4552d; --ok: #4a7c59; --hl: rgba(180, 85, 45, .18);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+    font-family: "Noto Serif SC", "SimSun", serif; font-size: 15px; }
+  button { font: inherit; }
+
+  #topbar { display: flex; align-items: center; gap: 14px; padding: 8px 16px;
+    border-bottom: 1px solid var(--line); background: #f3f1ec; position: sticky; top: 0; z-index: 10; }
+  #topbar h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; }
+  .tab { border: 1px solid var(--line); background: #fff; padding: 3px 12px; cursor: pointer; border-radius: 3px; }
+  .tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  #logstat { margin-left: auto; font-size: 13px; color: var(--dim); }
+  #logstat .warn { color: var(--accent); font-weight: 600; }
+  #exportBtn { border: 1px solid var(--accent); color: var(--accent); background: #fff;
+    padding: 3px 14px; border-radius: 3px; cursor: pointer; }
+  #exportBtn:hover { background: var(--accent); color: #fff; }
+
+  #main { display: flex; height: calc(100vh - 42px); }
+  #imgpane { flex: 1 1 52%; border-right: 1px solid var(--line); overflow: auto;
+    background: #e9e6df; position: relative; }
+  #imgwrap { position: relative; margin: 0 auto; width: fit-content; }
+  #pageimg { display: block; user-select: none; }
+  #bbox { position: absolute; border: 2px solid var(--accent); background: var(--hl);
+    border-radius: 2px; pointer-events: none; display: none; }
+  #pagenav { position: sticky; top: 8px; left: 8px; z-index: 5; }
+  #pagenav button { border: 1px solid var(--line); background: #fff; border-radius: 3px;
+    padding: 2px 10px; cursor: pointer; margin-right: 4px; }
+
+  #blockpane { flex: 1 1 48%; overflow: auto; padding: 10px 14px 40vh; }
+  .blk { padding: 8px 10px; border-left: 3px solid transparent; border-bottom: 1px solid #eee9e0; cursor: pointer; }
+  .blk.active { background: #fff; border-left-color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .blk .meta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; margin-bottom: 3px; }
+  .blk .meta .tp { color: var(--accent); }
+  .blk .meta .st { color: var(--ok); }
+  .blk .txt { white-space: pre-wrap; line-height: 1.75; outline: none; }
+  .blk .txt[contenteditable="true"] { background: #fffbe8; box-shadow: 0 0 0 2px var(--accent); }
+  .blk[ data-type="furniture"] .txt { color: var(--dim); }
+  .blk[ data-type="annotation"] { background: #f6f2ea; }
+  .blk[ data-type="structure"] .txt { font-weight: 700; font-size: 16.5px; }
+
+  #hint { position: fixed; bottom: 0; left: 0; right: 0; background: #2a2a28; color: #cfc9bf;
+    font-size: 12px; padding: 5px 14px; font-family: ui-monospace, Consolas, monospace; z-index: 20; }
+  #hint b { color: #fff; }
+
+  #modebar { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 30;
+    background: var(--ink); color: #fff; padding: 6px 18px; border-radius: 4px; display: none; font-size: 14px; }
+  #toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); z-index: 40;
+    background: var(--ok); color: #fff; padding: 6px 18px; border-radius: 4px; display: none; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <h1 id="title"></h1>
+  <span id="tabs"></span>
+  <span id="logstat"></span>
+  <button id="exportBtn">导出裁决日志 (S)</button>
+</div>
+<div id="main">
+  <div id="imgpane">
+    <div id="pagenav">
+      <button id="pgPrev">&lt; 上一页 (,)</button>
+      <button id="pgNext">下一页 (.) &gt;</button>
+      <button id="zoomBtn">缩放 (I)</button>
+    </div>
+    <div id="imgwrap">
+      <img id="pageimg" alt="page">
+      <div id="bbox"></div>
+    </div>
+  </div>
+  <div id="blockpane"><div id="blocklist"></div></div>
+</div>
+<div id="modebar"></div>
+<div id="toast"></div>
+<div id="hint">
+  <b>J/K</b> 上下块 · <b>E</b> 改文 · <b>Enter</b> 提交 / <b>Esc</b> 取消 ·
+  <b>G</b> 盖章(原文已定) · <b>Y</b> 退回 · <b>T</b> 改型 · <b>I</b> 缩放 ·
+  <b>, .</b> 翻页 · <b>S</b> 导出日志 · <b>Tab</b> 切箱 · <b>?</b> 帮助
+</div>
+<script>
+"use strict";
+/*__DATA__*/null;
+// ===== 状态 =====
+var BINS = [
+  { key: "review",  label: "待校",   match: function (b) { return b.state === "typed" && b.type !== "furniture"; } },
+  { key: "locked",  label: "已定",   match: function (b) { return b.state === "原文已定"; } },
+  { key: "untyped", label: "未分型", match: function (b) { return b.type === "untyped"; } },
+  { key: "all",     label: "全部",   match: function () { return true; } },
+];
+var TYPES = ["flow", "structure", "furniture", "annotation", "asset", "untyped"];
+var state = { bin: 0, idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, curPage: 0 };
+try {
+  var mirrored = JSON.parse(localStorage.getItem(logKey()) || "[]");
+  if (mirrored.length) { state.log = mirrored; toast("检测到 " + mirrored.length + " 条未落盘裁决，请先导出"); }
+} catch (e) {}
+function logKey() { return "bookflow:log:" + DATA.title; }
+
+// ===== 派生 =====
+function binBlocks() {
+  var arr = [];
+  for (var i = 0; i < DATA.blocks.length; i++) if (BINS[state.bin].match(DATA.blocks[i])) arr.push(DATA.blocks[i]);
+  return arr;
+}
+function counts() {
+  var c = [];
+  for (var i = 0; i < BINS.length; i++) c.push(binBlocksOf(i).length);
+  return c;
+}
+function binBlocksOf(i) {
+  var arr = [];
+  for (var j = 0; j < DATA.blocks.length; j++) if (BINS[i].match(DATA.blocks[j])) arr.push(DATA.blocks[j]);
+  return arr;
+}
+function cur() { return binBlocks()[state.idx]; }
+function pageSrc(p) { return "../data/pages/p" + String(p).padStart(3, "0") + ".png"; }
+
+// ===== 动作 =====
+function push(action, block, payload) {
+  state.log.push({ ts: new Date().toISOString(), block: block.id, action: action, payload: payload });
+  localStorage.setItem(logKey(), JSON.stringify(state.log));
+  applyToBlock(block, action, payload);
+  renderLogStat();
+  if (state.log.length >= 15) { toast("已满 15 条，自动导出"); exportLog(); }
+}
+function applyToBlock(b, action, payload) {
+  if (action === "gate") b.state = payload.state;
+  else if (action === "edit") b.text = payload.text;
+  else if (action === "reclassify") b.type = payload.type;
+}
+// 镜像日志重放（与回放器同规则，非法则跳过）
+function replayMirror() {
+  var allowed = { typed: ["原文已定"], "原文已定": ["typed"] };
+  for (var i = 0; i < state.log.length; i++) {
+    var a = state.log[i];
+    var b = DATA.blocks.find(function (x) { return x.id === a.block; });
+    if (!b) continue;
+    if (a.action === "gate") {
+      var ok = (allowed[b.state] || []).indexOf(a.payload.state) >= 0;
+      if (ok) b.state = a.payload.state;
+    } else if (a.action === "edit") b.text = a.payload.text;
+    else if (a.action === "reclassify") b.type = a.payload.type;
+  }
+}
+
+// ===== 渲染 =====
+function renderAll() { renderTabs(); renderList(true); renderLogStat(); }
+function renderTabs() {
+  var c = counts(), html = "";
+  for (var i = 0; i < BINS.length; i++)
+    html += '<button class="tab' + (i === state.bin ? " on" : "") + '" data-bin="' + i + '">'
+      + BINS[i].label + " " + c[i] + "</button> ";
+  document.getElementById("tabs").innerHTML = html;
+}
+function renderLogStat() {
+  var n = state.log.length;
+  document.getElementById("logstat").innerHTML = n
+    ? '待落盘裁决 <span class="warn">' + n + "</span> 条"
+    : "日志已落盘";
+}
+function renderList(scroll) {
+  var arr = binBlocks();
+  if (!arr.length) { document.getElementById("blocklist").innerHTML = "<p style='color:#8a857c'>本箱为空。</p>"; clearBbox(); return; }
+  if (state.idx >= arr.length) state.idx = arr.length - 1;
+  if (state.idx < 0) state.idx = 0;
+  var lo = Math.max(0, state.idx - 80), hi = Math.min(arr.length, state.idx + 80);
+  var html = "";
+  for (var i = lo; i < hi; i++) {
+    var b = arr[i];
+    html += "<div class='blk" + (i === state.idx ? " active" : "") + "' data-i='" + i + "' data-type='" + b.type + "'>"
+      + "<div class='meta'>" + b.id + " · <span class='tp'>" + b.type + "</span> · <span class='st'>" + b.state + "</span></div>"
+      + "<div class='txt'" + (i === state.idx && state.editing ? " contenteditable='true' id='editor'" : "") + ">"
+      + esc(b.text) + "</div></div>";
+  }
+  var el = document.getElementById("blocklist");
+  el.innerHTML = html;
+  var act = el.querySelector(".active");
+  if (act && scroll) act.scrollIntoView({ block: "nearest" });
+  if (act && state.editing) { var ed = el.querySelector("#editor"); if (ed) { ed.focus(); placeCaretEnd(ed); } }
+  showPageOf(cur());
+}
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function placeCaretEnd(el) {
+  var r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+  var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+
+// ===== 页图 =====
+function showPageOf(b) {
+  if (!b) { clearBbox(); return; }
+  var img = document.getElementById("pageimg");
+  if (state.curPage !== b.page || !img.src) {
+    state.curPage = b.page;
+    img.src = pageSrc(b.page);
+    img.onload = function () { drawBbox(cur()); };
+  }
+  drawBbox(b);
+}
+function drawBbox(b) {
+  var box = document.getElementById("bbox");
+  if (!b) { box.style.display = "none"; return; }
+  var img = document.getElementById("pageimg");
+  var pg = DATA.pages[b.page - 1];
+  var wrap = document.getElementById("imgwrap");
+  var w = state.zoomFit ? Math.min(imgpane().clientWidth - 24, img.naturalWidth) : img.naturalWidth;
+  var k = w / pg.w;
+  wrap.style.width = w + "px";
+  img.style.width = w + "px";
+  box.style.display = "block";
+  box.style.left = b.bbox.x0 * k - 3 + "px";
+  box.style.top = b.bbox.y0 * k - 3 + "px";
+  box.style.width = (b.bbox.x1 - b.bbox.x0) * k + 6 + "px";
+  box.style.height = (b.bbox.y1 - b.bbox.y0) * k + 6 + "px";
+}
+function clearBbox() { document.getElementById("bbox").style.display = "none"; }
+function imgpane() { return document.getElementById("imgpane"); }
+
+// ===== 动作实现 =====
+function doGate(back) {
+  var b = cur(); if (!b) return;
+  var target = back ? "typed" : "原文已定";
+  if (!back && b.state !== "typed") { toast("仅 待校 块可盖章"); return; }
+  if (back && b.state !== "原文已定") { toast("仅 已定 块可退回"); return; }
+  push("gate", b, { state: target });
+  toast(back ? "已退回" : "已盖章 " + b.id);
+  if (!back) { state.bin = 0; state.idx = state.idx; renderAll(); move(0); } else renderAll();
+}
+function doReclassify(n) {
+  var b = cur(); if (!b) return;
+  var t = TYPES[n - 1]; if (!t) return;
+  push("reclassify", b, { type: t });
+  toast(b.id + " → " + t);
+  state.typeMode = false; modebar("");
+  renderAll();
+}
+function commitEdit() {
+  var ed = document.getElementById("editor");
+  if (!ed) { state.editing = false; return; }
+  var b = cur();
+  var newText = ed.innerText.replace(/\n\n+/g, "\n").trimEnd();
+  if (newText !== b.text) { push("edit", b, { text: newText }); toast("已改文 " + b.id); }
+  state.editing = false;
+  renderAll();
+}
+
+// ===== 导航 =====
+function move(d) {
+  if (state.editing) return;
+  var n = binBlocks().length;
+  if (!n) return;
+  state.idx = Math.min(n - 1, Math.max(0, state.idx + d));
+  renderList(true);
+}
+function setBin(i) {
+  if (state.editing) return;
+  state.bin = i; state.idx = 0;
+  renderAll();
+}
+
+// ===== 导出 =====
+function exportLog() {
+  if (!state.log.length) { toast("日志为空"); return; }
+  var text = state.log.map(function (a) { return JSON.stringify(a); }).join("\n") + "\n";
+  var blob = new Blob([text], { type: "application/x-ndjson" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "adjudication-" + DATA.title + "-" + Date.now() + ".jsonl";
+  document.body.appendChild(a); a.click(); a.remove();
+  state.log = [];
+  localStorage.setItem(logKey(), "[]");
+  renderLogStat();
+  toast("已下载 —— 放入 bookflow/inbox/ 后运行 npm run replay");
+}
+
+// ===== UI 反馈 =====
+var toastTimer = null;
+function toast(msg) {
+  var t = document.getElementById("toast");
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.style.display = "none"; }, 2600);
+}
+function modebar(msg) {
+  var m = document.getElementById("modebar");
+  m.textContent = msg; m.style.display = msg ? "block" : "none";
+}
+
+// ===== 事件 =====
+document.getElementById("tabs").addEventListener("click", function (e) {
+  var b = e.target.getAttribute("data-bin");
+  if (b !== null) setBin(Number(b));
+});
+document.getElementById("exportBtn").addEventListener("click", exportLog);
+document.getElementById("pgPrev").addEventListener("click", function () { nudgePage(-1); });
+document.getElementById("pgNext").addEventListener("click", function () { nudgePage(1); });
+document.getElementById("zoomBtn").addEventListener("click", toggleZoom);
+document.getElementById("blocklist").addEventListener("click", function (e) {
+  var blk = e.target.closest(".blk");
+  if (!blk || state.editing) return;
+  state.idx = Number(blk.getAttribute("data-i"));
+  renderList(false);
+});
+window.addEventListener("resize", function () { drawBbox(cur()); });
+function nudgePage(d) {
+  var p = Math.min(DATA.pages.length, Math.max(1, (cur() ? cur().page : 1) + d));
+  state.curPage = 0; showPageOf({ page: p, bbox: null });
+  document.getElementById("bbox").style.display = "none";
+}
+function toggleZoom() {
+  state.zoomFit = !state.zoomFit;
+  toast(state.zoomFit ? "适宽" : "原始尺寸（滚轮平移）");
+  drawBbox(cur());
+}
+
+document.addEventListener("keydown", function (e) {
+  if (e.isComposing || e.keyCode === 229) return; // IME 合成期不接键
+  if (state.editing) {
+    if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
+    else if (e.key === "Escape") { state.editing = false; renderAll(); }
+    return;
+  }
+  if (state.typeMode) {
+    if (e.key >= "1" && e.key <= "6") { e.preventDefault(); doReclassify(Number(e.key)); }
+    else if (e.key === "Escape") { state.typeMode = false; modebar(""); }
+    return;
+  }
+  switch (e.key) {
+    case "j": case "ArrowDown": e.preventDefault(); move(1); break;
+    case "k": case "ArrowUp": e.preventDefault(); move(-1); break;
+    case "e": {
+      var b = cur(); if (!b) break;
+      state.editing = true; renderList(false); break;
+    }
+    case "g": e.preventDefault(); doGate(false); break;
+    case "y": e.preventDefault(); doGate(true); break;
+    case "t": {
+      state.typeMode = true;
+      modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）");
+      break;
+    }
+    case "i": toggleZoom(); break;
+    case ",": nudgePage(-1); break;
+    case ".": nudgePage(1); break;
+    case "s": case "S": e.preventDefault(); exportLog(); break;
+    case "Tab": e.preventDefault(); setBin((state.bin + 1) % BINS.length); break;
+  }
+});
+
+// ===== 启动 =====
+document.getElementById("title").textContent = DATA.title + " —— 人工校对 #1（对照页图）";
+replayMirror();
+renderAll();
+</script>
+</body>
+</html>

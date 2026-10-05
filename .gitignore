@@ -1,0 +1,6 @@
+node_modules/
+data/
+workbench/
+inbox/processed/
+__pycache__/
+.server.log

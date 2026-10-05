@@ -1,0 +1,23 @@
+{
+  "name": "bookflow",
+  "version": "0.1.0",
+  "description": "书稿流水线 MVP：PDF → 块图 → 工作台 → 裁决回放（架构见 ../book/书稿流水线架构.md）",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "testbook": "node scripts/build-testbook.mjs",
+    "extract": "node src/extract.ts",
+    "render": "node src/renderpages.ts",
+    "export": "node src/exportwb.ts",
+    "replay": "node src/replay.ts",
+    "smoke": "node test/smoke.ts"
+  },
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.10",
+    "pdfjs-dist": "4.8.69"
+  }
+}
