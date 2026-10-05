@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, sta
 import path from "node:path";
 import { ROOT } from "./model.ts";
 import { loadRegistry, saveRegistry, bookDir, pathsFor, deriveStage, progress, libraryRoot, homeConfigured, setLibraryRoot, BEHAVIORS, BEHAVIOR_STEPS, type BookMeta } from "./library.ts";
-import { renderPagesToBuffers, pdfPageCount, FX_DEFAULTS, fxHash, type Fx } from "./pageimg.ts";
+import { renderPagesToBuffers, pdfPageCount, hasTextLayer, FX_DEFAULTS, fxHash, type Fx } from "./pageimg.ts";
 
 const PORT = Number(process.env.BOOKFLOW_PORT ?? 8477);
 const CONFIG = () => path.join(libraryRoot(), "config.json"); // 功能层级：引擎配置的家（含密钥，不入库）
@@ -155,7 +155,7 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/api/books" && req.method === "GET") {
       const inflight = new Set(tasks.filter((t) => t.status === "queued" || t.status === "running").map((t) => t.book));
-      json(res, 200, loadRegistry().map((m) => {
+      json(res, 200, loadRegistry().filter((m) => !m.deletedAt).map((m) => {
         const P = pathsFor(m.id);
         const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
         return { ...m, stage: deriveStage(m.id), progress: progress(m.id), params, inflight: inflight.has(m.id) };
@@ -299,6 +299,26 @@ const server = createServer(async (req, res) => {
       writeFileSync(tmp, JSON.stringify(snap.graph, null, 2), "utf-8");
       renameSync(tmp, P.graph); // 原子恢复
       json(res, 200, { ok: true, restored: snap.v });
+      return;
+    }
+    const bookDelete = p.match(/^\/api\/books\/([^/]+)\/delete$/);
+    if (bookDelete && req.method === "POST") {
+      // 软删除：登记薄打标，数据与产物一概不动
+      const id = decodeURIComponent(bookDelete[1]);
+      const books = loadRegistry();
+      const meta = books.find((x) => x.id === id);
+      if (!meta) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      meta.deletedAt = new Date().toISOString();
+      saveRegistry(books);
+      json(res, 200, { ok: true });
+      return;
+    }
+    const bookTextLayer = p.match(/^\/api\/books\/([^/]+)\/textlayer$/);
+    if (bookTextLayer && req.method === "GET") {
+      const id = decodeURIComponent(bookTextLayer[1]);
+      const meta = findBook(id);
+      if (!meta) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      json(res, 200, { hasText: await hasTextLayer(pathsFor(id).source) });
       return;
     }
     if (p === "/api/tasks" && req.method === "GET") {

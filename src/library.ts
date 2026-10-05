@@ -30,6 +30,7 @@ export interface BookMeta {
   title: string;
   createdAt: string;
   origin?: string; // 源 PDF 原始位置（图书馆只读，这里只记出处）
+  deletedAt?: string; // 软删除标记：数据与产物保留，书架不再显示
 }
 
 export function loadRegistry(): BookMeta[] {

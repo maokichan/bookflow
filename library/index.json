@@ -10,6 +10,30 @@
       "id": "test-book",
       "title": "测试书",
       "createdAt": "2026-10-05T11:11:45.988Z"
+    },
+    {
+      "id": "audio-effects-theory-implementation-and-application-mcpherson-andrew-p-reiss-joshua-d-z-library-sk-1lib-sk-z-lib-sk",
+      "title": "Audio Effects Theory, Implementation and Application (McPherson, Andrew P. Reiss, Joshua D) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "createdAt": "2026-10-05T13:30:22.988Z",
+      "origin": "Audio Effects Theory, Implementation and Application (McPherson, Andrew P. Reiss, Joshua D) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+    },
+    {
+      "id": "bmuvafnhq",
+      "title": "草拟的",
+      "createdAt": "2026-10-05T13:30:58.097Z",
+      "origin": "Audio Effects Theory, Implementation and Application (McPherson, Andrew P. Reiss, Joshua D) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+    },
+    {
+      "id": "bmuvafrmg",
+      "title": "草拟的",
+      "createdAt": "2026-10-05T13:31:03.517Z",
+      "origin": "数字音频技术 (肯·C·波尔曼) (Z-Library).pdf"
+    },
+    {
+      "id": "fuckyou",
+      "title": "fuckyou",
+      "createdAt": "2026-10-05T13:31:08.972Z",
+      "origin": "数字音频技术 (肯·C·波尔曼) (Z-Library).pdf"
     }
   ]
 }

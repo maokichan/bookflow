@@ -76,15 +76,9 @@ function polish(ctx: { getImageData(x: number, y: number, w: number, h: number):
   ctx.putImageData(img, 0, 0);
 }
 
-// 一次打开 PDF，渲染指定页号列表 → [{page, png}]（fx 逐页应用）
-export async function renderPagesToBuffers(
-  pdfPath: string,
-  pages: number[],
-  scale: number,
-  fx: Fx,
-): Promise<{ page: number; png: Uint8Array }[]> {
+async function loadDoc(pdfPath: string) {
   const buf = readFileSync(pdfPath);
-  const doc = await pdfjsLib.getDocument({
+  return pdfjsLib.getDocument({
     data: new Uint8Array(buf),
     useSystemFonts: false,
     disableFontFace: true,
@@ -92,6 +86,25 @@ export async function renderPagesToBuffers(
     CanvasFactory: NapiCanvasFactory,
     standardFontDataUrl: path.join(ROOT, "node_modules", "pdfjs-dist", "standard_fonts") + path.sep,
   }).promise;
+}
+
+// 书籍是否自带文本层（识别来源选择的依据）
+export async function hasTextLayer(pdfPath: string): Promise<boolean> {
+  const doc = await loadDoc(pdfPath);
+  const page = await doc.getPage(1);
+  const tc = await page.getTextContent();
+  const chars = tc.items.reduce((s: number, it: any) => s + (it.str?.length ?? 0), 0);
+  return chars > 20;
+}
+
+// 一次打开 PDF，渲染指定页号列表 → [{page, png}]（fx 逐页应用）
+export async function renderPagesToBuffers(
+  pdfPath: string,
+  pages: number[],
+  scale: number,
+  fx: Fx,
+): Promise<{ page: number; png: Uint8Array }[]> {
+  const doc = await loadDoc(pdfPath);
   const out: { page: number; png: Uint8Array }[] = [];
   for (const p of pages) {
     const page = await doc.getPage(p);
@@ -108,15 +121,7 @@ export async function renderPagesToBuffers(
 }
 
 export async function pdfPageCount(pdfPath: string): Promise<number> {
-  const buf = readFileSync(pdfPath);
-  const doc = await pdfjsLib.getDocument({
-    data: new Uint8Array(buf),
-    useSystemFonts: false,
-    disableFontFace: true,
-    isEvalSupported: false,
-    CanvasFactory: NapiCanvasFactory,
-    standardFontDataUrl: path.join(ROOT, "node_modules", "pdfjs-dist", "standard_fonts") + path.sep,
-  }).promise;
+  const doc = await loadDoc(pdfPath);
   return doc.numPages;
 }
 
