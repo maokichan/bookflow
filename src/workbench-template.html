@@ -39,10 +39,18 @@
   #leftrail { left: 0; border-right: 1px solid var(--line); }
   #rightrail { right: 0; border-left: 1px solid var(--line); }
   .rail .rh { font-size: 11.5px; color: var(--dim); margin: 4px 0 8px; font-family: ui-monospace, Consolas, monospace; }
+  #center::-webkit-scrollbar, .rail::-webkit-scrollbar, #curcard .ctxt::-webkit-scrollbar { width: 6px; height: 6px; }
+  #center::-webkit-scrollbar-thumb, .rail::-webkit-scrollbar-thumb, #curcard .ctxt::-webkit-scrollbar-thumb { background: #c6c0b2; border-radius: 3px; }
+  #center::-webkit-scrollbar-track, .rail::-webkit-scrollbar-track, #curcard .ctxt::-webkit-scrollbar-track { background: transparent; }
   .ol-item { font-size: 13px; padding: 3px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ol-item.lv1 { padding-left: 6px; }
+  .ol-item.lv2 { padding-left: 28px; border-left: 1px solid var(--hair); margin-left: 10px; }
+  .ol-item.lv3 { padding-left: 50px; border-left: 1px solid var(--hair); margin-left: 32px; }
+  .mt-item { font-size: 13.5px; line-height: 1.9; padding: 9px 4px; border-bottom: 1px solid var(--hair); cursor: pointer; color: #3a372f; }
+  .mt-item:hover { background: var(--paper); }
+  .mt-item.mt-h { font-weight: 700; font-size: 14.5px; color: var(--ink); }
   .ol-item:hover { background: var(--paper); }
-  .ol-item.lv2 { padding-left: 20px; }
-  .ol-item.lv3 { padding-left: 34px; }
+
   .ol-item .opg { float: right; color: var(--dim); font-size: 11px; }
   .ol-empty { font-size: 12.5px; color: var(--dim); }
   .dn-item { font-size: 13px; line-height: 1.6; padding: 6px 6px; border-bottom: 1px solid var(--hair); color: #57534a; }
@@ -86,7 +94,6 @@
   <h1 id="title"></h1>
   <span class="sp"></span>
   <span class="count" id="counts"></span>
-  <button class="ta" id="exportBtn">导出日志</button>
 </div>
 <button class="railtab" id="tabL">结构</button>
 <button class="railtab" id="tabR">已定</button>
@@ -214,14 +221,18 @@ function renderCurrent() {
   centerSelection();
 }
 function renderDone() {
-  var d = doneBlocks();
+  var d = doneBlocks(); // 书序即数组序
   var host = document.getElementById("rightrail");
-  if (!d.length) { host.innerHTML = "<div class='rh'>已定</div><div class='ol-empty'>尚无已定块</div>"; return; }
+  if (!d.length) { host.innerHTML = "<div class='rh'>OCR 产物</div><div class='ol-empty'>尚无已定段落</div>"; return; }
   var html = "";
   for (var i = 0; i < d.length; i++) {
-    html += "<div class='dn-item'><div class='dmeta'>" + d[i].id + "</div><div class='dtxt'>" + esc(d[i].text) + "</div></div>";
+    var b = d[i];
+    var full = state.mtFull !== false;
+    var txt = full || b.text.length <= 90 ? b.text : b.text.slice(0, 90) + "…";
+    var cls = b.type === "structure" ? " mt-h" : "";
+    html += "<div class='mt-item" + cls + "' data-id='" + b.id + "' data-page='" + b.page + "' data-y='" + b.bbox.y0 + "'>" + esc(txt) + "</div>";
   }
-  host.innerHTML = "<div class='rh'>已定 · 成型中的书</div>" + html;
+  host.innerHTML = "<div class='rh'>OCR 产物 · <button class='ta' id='mt-toggle'>" + (state.mtFull !== false ? "节选" : "全量") + "</button></div>" + html;
 }
 
 // ===== 大纲（左栏：结构树即导航；计数 = 归属到该结构的块数） =====
@@ -459,12 +470,19 @@ function center() { return document.getElementById("center"); }
 // ===== 版本：Ctrl+S 显式存版（走本地服务；file:// 下退化为导出日志） =====
 function saveVersion() {
   var label = "校对至 " + (queue().length ? (queue().length - state.idx) + " 待定" : "已清");
-  if (!location.origin.startsWith("http")) { toast("file:// 下无法存版本 —— 从书架打开工作台"); return; }
+  if (!location.origin.startsWith("http")) { toast("file:// 下无法保存 —— 从书架打开工作台"); return; }
+  var graph = { version: 0, source: DATA.source, title: DATA.title, createdAt: new Date().toISOString(), pages: DATA.pages, blocks: DATA.blocks };
   fetch("/api/books/" + encodeURIComponent(DATA.bookId) + "/versions", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ label: label }),
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label: label, graph: graph }),
   }).then(function (r) { return r.json(); })
-    .then(function (j) { toast("已存版本 v" + j.v); })
-    .catch(function () { exportLog(); });
+    .then(function (j) {
+      state.log = [];
+      localStorage.setItem(logKey(), "[]");
+      renderChrome();
+      toast("已保存 v" + j.v);
+    })
+    .catch(function () { toast("保存失败 —— 请重试"); });
 }
 
 // ===== UI 反馈 =====
@@ -481,7 +499,6 @@ function modebar(msg) {
 }
 
 // ===== 事件 =====
-document.getElementById("exportBtn").addEventListener("click", exportLog);
 document.getElementById("tabL").addEventListener("click", function () { document.body.classList.toggle("noL"); });
 document.getElementById("tabR").addEventListener("click", function () { document.body.classList.toggle("noR"); });
 document.getElementById("leftrail").addEventListener("click", function (e) {
@@ -495,11 +512,11 @@ document.getElementById("leftrail").addEventListener("click", function (e) {
   if (blk) { toast(blk.id + " · " + blk.state); }
 });
 document.getElementById("rightrail").addEventListener("click", function (e) {
-  var it = e.target.closest(".dn-item");
+  if (e.target.id === "mt-toggle") { state.mtFull = state.mtFull === false; renderDone(); return; }
+  var it = e.target.closest(".mt-item");
   if (!it || state.editing) return;
-  var idx = [...document.querySelectorAll("#rightrail .dn-item")].indexOf(it);
-  var b = doneBlocks()[idx];
-  if (b && PAGES[b.page]) PAGES[b.page].img.scrollIntoView({ block: "center" });
+  var page = Number(it.getAttribute("data-page"));
+  if (PAGES[page]) PAGES[page].img.scrollIntoView({ block: "start" });
 });
 document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
   btn.addEventListener("click", function () {

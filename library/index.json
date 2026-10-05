@@ -4,7 +4,8 @@
       "id": "pourquoi",
       "title": "为何一切尚未消失",
       "createdAt": "2026-10-05T07:14:55.075Z",
-      "origin": "D:/DATABASE/图书馆（鲍德里亚，南京大学出版社 2017）"
+      "origin": "D:/DATABASE/图书馆（鲍德里亚，南京大学出版社 2017）",
+      "deletedAt": "2026-10-05T13:41:36.099Z"
     },
     {
       "id": "test-book",
@@ -21,18 +22,27 @@
       "id": "bmuvafnhq",
       "title": "草拟的",
       "createdAt": "2026-10-05T13:30:58.097Z",
-      "origin": "Audio Effects Theory, Implementation and Application (McPherson, Andrew P. Reiss, Joshua D) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      "origin": "Audio Effects Theory, Implementation and Application (McPherson, Andrew P. Reiss, Joshua D) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "deletedAt": "2026-10-05T13:41:39.810Z"
     },
     {
       "id": "bmuvafrmg",
       "title": "草拟的",
       "createdAt": "2026-10-05T13:31:03.517Z",
-      "origin": "数字音频技术 (肯·C·波尔曼) (Z-Library).pdf"
+      "origin": "数字音频技术 (肯·C·波尔曼) (Z-Library).pdf",
+      "deletedAt": "2026-10-05T13:41:42.095Z"
     },
     {
       "id": "fuckyou",
       "title": "fuckyou",
       "createdAt": "2026-10-05T13:31:08.972Z",
+      "origin": "数字音频技术 (肯·C·波尔曼) (Z-Library).pdf",
+      "deletedAt": "2026-10-05T13:41:44.077Z"
+    },
+    {
+      "id": "c-z-library",
+      "title": "数字音频技术 (肯·C·波尔曼) (Z-Library)",
+      "createdAt": "2026-10-05T13:53:22.877Z",
       "origin": "数字音频技术 (肯·C·波尔曼) (Z-Library).pdf"
     }
   ]

@@ -2,6 +2,7 @@
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas, DOMMatrix, Path2D, ImageData } from "@napi-rs/canvas";
 import { readFileSync } from "node:fs";
+import sharp from "sharp";
 import path from "node:path";
 import { ROOT } from "./model.ts";
 
@@ -33,49 +34,10 @@ class NapiCanvasFactory {
   }
 }
 
-export interface Fx { contrast: number; denoise: 0 | 1; sharpen: number }
+export interface Fx { contrast: number; denoise: number; sharpen: number } // denoise 0/1/2 = 关/中值3/中值5
 export const FX_DEFAULTS: Fx = { contrast: 100, denoise: 0, sharpen: 0 };
 
-function clamp(v: number) { return v < 0 ? 0 : v > 255 ? 255 : v; }
-
-// 前级：手动参数的图像规范化（降噪 → 对比度 → 锐化），顺序固定保证可复现
-function polish(ctx: { getImageData(x: number, y: number, w: number, h: number): ImageData; putImageData(img: ImageData, x: number, y: number): void }, w: number, h: number, fx: Fx): void {
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  if (fx.denoise === 1) {
-    const src = new Uint8ClampedArray(d);
-    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
-      const o = (y * w + x) * 4;
-      for (let c = 0; c < 3; c++) {
-        let s = 0;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += src[((y + dy) * w + (x + dx)) * 4 + c];
-        d[o + c] = s / 9;
-      }
-    }
-  }
-  if (fx.contrast !== 100) {
-    const k = fx.contrast / 100;
-    for (let i = 0; i < d.length; i += 4) {
-      d[i] = clamp((d[i] - 128) * k + 128);
-      d[i + 1] = clamp((d[i + 1] - 128) * k + 128);
-      d[i + 2] = clamp((d[i + 2] - 128) * k + 128);
-    }
-  }
-  if (fx.sharpen > 0) {
-    const amt = fx.sharpen / 100;
-    const src = new Uint8ClampedArray(d);
-    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
-      const o = (y * w + x) * 4;
-      for (let c = 0; c < 3; c++) {
-        const v = src[o + c] * (1 + 4 * amt)
-          - (src[o - 4 + c] + src[o + 4 + c] + src[o - w * 4 + c] + src[o + w * 4 + c]) * amt;
-        d[o + c] = clamp(v);
-      }
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-}
-
+// 前级：成熟图像原语（sharp/libvips），顺序固定保证可复现：降噪(中值) → 对比度(围绕中灰线性) → 锐化
 async function loadDoc(pdfPath: string) {
   const buf = readFileSync(pdfPath);
   return pdfjsLib.getDocument({
@@ -97,6 +59,18 @@ export async function hasTextLayer(pdfPath: string): Promise<boolean> {
   return chars > 20;
 }
 
+export async function polishBuffer(png: Uint8Array, fx: Fx): Promise<Uint8Array> {
+  let p = sharp(Buffer.from(png));
+  if (fx.denoise > 0) p = p.median(fx.denoise === 2 ? 5 : 3);
+  if (fx.contrast !== 100) {
+    const k = fx.contrast / 100;
+    p = p.linear(k, 128 * (1 - k));
+  }
+  if (fx.sharpen > 0) p = p.sharpen({ sigma: 0.5 + fx.sharpen / 100 });
+  const out = await p.png().toBuffer();
+  return new Uint8Array(out);
+}
+
 // 一次打开 PDF，渲染指定页号列表 → [{page, png}]（fx 逐页应用）
 export async function renderPagesToBuffers(
   pdfPath: string,
@@ -114,8 +88,8 @@ export async function renderPagesToBuffers(
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx as any, viewport: vp, background: "#ffffff" } as any).promise;
-    polish(ctx, canvas.width, canvas.height, fx);
-    out.push({ page: p, png: canvas.encodeSync("png") });
+    const raw = canvas.encodeSync("png");
+    out.push({ page: p, png: await polishBuffer(raw, fx) });
   }
   return out;
 }

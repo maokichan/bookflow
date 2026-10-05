@@ -219,7 +219,7 @@ const server = createServer(async (req, res) => {
         const body = await readBody(req);
         const fx = {
           contrast: Math.min(300, Math.max(50, Number(body.contrast) || 100)),
-          denoise: body.denoise ? 1 : 0,
+          denoise: Math.min(2, Math.max(0, Number(body.denoise) || 0)),
           sharpen: Math.min(200, Math.max(0, Number(body.sharpen) || 0)),
         };
         // 参数一变，产物过期：确认作废，须重新「确定预处理」
@@ -284,7 +284,17 @@ const server = createServer(async (req, res) => {
         return;
       }
       if (bookVersions[0].endsWith("/versions") && req.method === "POST") {
-        json(res, 200, snapshot(id, (await readBody(req)).label));
+        const body = await readBody(req);
+        if (body.graph) {
+          // 保存语义（Ctrl+S）：工作台当前状态（含未落盘裁决）既存版、也落盘块图
+          const P0 = pathsFor(id);
+          const g = body.graph;
+          g.version = (g.version ?? 0) + 1;
+          const tmp = P0.graph + ".tmp";
+          writeFileSync(tmp, JSON.stringify(g, null, 2), "utf-8");
+          renameSync(tmp, P0.graph);
+        }
+        json(res, 200, snapshot(id, body.label));
         return;
       }
     }
@@ -320,6 +330,22 @@ const server = createServer(async (req, res) => {
       if (!meta) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
       json(res, 200, { hasText: await hasTextLayer(pathsFor(id).source) });
       return;
+    }
+    const bookRegions = p.match(/^\/api\/books\/([^/]+)\/regions$/);
+    if (bookRegions) {
+      const id = decodeURIComponent(bookRegions[1]);
+      if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const rf = path.join(pathsFor(id).dir, "regions.json");
+      if (req.method === "GET") {
+        json(res, 200, existsSync(rf) ? JSON.parse(readFileSync(rf, "utf-8")) : { bands: [] });
+        return;
+      }
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        writeFileSync(rf, JSON.stringify({ bands: body.bands ?? [] }, null, 2), "utf-8");
+        json(res, 200, { ok: true });
+        return;
+      }
     }
     if (p === "/api/tasks" && req.method === "GET") {
       json(res, 200, tasks.slice(0, 100));

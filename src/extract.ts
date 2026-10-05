@@ -317,6 +317,20 @@ function splitParagraph(j: { texts: string[]; lines: Line[] }): string[] {
   return [joinLines(j.texts)];
 }
 
+// 注意力框（预处理阶段定义的页眉/页脚带）：带内块归附着块，不进待校队列
+const regionsFile = path.join(pathsFor(BOOK).dir, "regions.json");
+if (existsSync(regionsFile)) {
+  const bands = JSON.parse(readFileSync(regionsFile, "utf-8")).bands ?? [];
+  let hit = 0;
+  for (const b of blocks) {
+    const h = pages[b.page - 1]?.h ?? 0;
+    if (!h) continue;
+    const yc = (b.bbox.y0 + b.bbox.y1) / 2 / h;
+    if (bands.some((r: any) => yc >= r.y0 && yc <= r.y1)) { b.type = "furniture"; hit++; }
+  }
+  if (hit) console.log(`注意力框：${hit} 块归入附着`);
+}
+
 const graph: BlockGraph = {
   version: 0,
   source: path.relative(ROOT, PDF_PATH),
