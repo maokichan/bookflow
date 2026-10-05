@@ -163,6 +163,28 @@ const server = createServer(async (req, res) => {
       json(res, 200, { ...meta, stage: deriveStage(id), progress: progress(id) });
       return;
     }
+    const bookParams = p.match(/^\/api\/books\/([^/]+)\/params$/);
+    if (bookParams) {
+      const id = decodeURIComponent(bookParams[1]);
+      if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const P = pathsFor(id);
+      if (req.method === "GET") {
+        json(res, 200, existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : { contrast: 100, denoise: 0, sharpen: 0 });
+        return;
+      }
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        const fx = {
+          contrast: Math.min(300, Math.max(50, Number(body.contrast) || 100)),
+          denoise: body.denoise ? 1 : 0,
+          sharpen: Math.min(200, Math.max(0, Number(body.sharpen) || 0)),
+        };
+        mkdirSync(pathsFor(id).dir, { recursive: true });
+        writeFileSync(P.params, JSON.stringify(fx, null, 2), "utf-8");
+        json(res, 200, fx);
+        return;
+      }
+    }
     if (p === "/api/tasks" && req.method === "GET") {
       json(res, 200, tasks.slice(0, 100));
       return;

@@ -3,7 +3,7 @@
 // 已消费日志移入 inbox/processed/。违反前置条件的动作被拒并计入报告，不静默。
 import { readFileSync, readdirSync, mkdirSync, renameSync } from "node:fs";
 import path from "node:path";
-import { loadGraph, saveGraph, findBlock, GATE_TRANSITIONS, type BlockState } from "./model.ts";
+import { loadGraph, saveGraph, findBlock, joinParaText, GATE_TRANSITIONS, type BlockState } from "./model.ts";
 import { argBook, pathsFor } from "./library.ts";
 
 const P = pathsFor(argBook());
@@ -53,6 +53,22 @@ for (const f of logs) {
       }
       b.type = "structure";
       b.level = a.payload.level;
+    } else if (a.action === "merge") {
+      // 跨页拼合：b 吸收 payload.absorb 指向的块（同类型、相邻、未被吸收过才放行）
+      const target = findBlock(g, a.payload?.absorb);
+      if (!target) { report.rejected.push(`${where} ${b.id} 吸收目标不存在`); continue; }
+      if (target.absorbedInto) { report.rejected.push(`${where} ${target.id} 已被 ${target.absorbedInto} 吸收`); continue; }
+      if (b.type !== "flow" || target.type !== "flow") {
+        report.rejected.push(`${where} 仅流转块可拼合（${b.type}⊕${target.type}）`); continue;
+      }
+      const ai = g.blocks.indexOf(b), bi = g.blocks.indexOf(target);
+      if (ai < 0 || bi <= ai) { report.rejected.push(`${where} 拼合目标须在书序之后`); continue; }
+      if (g.blocks.slice(ai + 1, bi).some((x) => x.type !== "furniture")) {
+        report.rejected.push(`${where} ${b.id} 与 ${target.id} 不相邻`); continue;
+      }
+      b.text = joinParaText(b.text, target.text);
+      target.absorbedInto = b.id;
+      target.history.push({ ts: a.ts, action: "merge-absorbed", by: "human:workbench" });
     } else {
       report.rejected.push(`${where} 未知动作 ${a.action}`); continue;
     }

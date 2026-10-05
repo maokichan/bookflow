@@ -51,6 +51,7 @@ export interface Block {
   text: string;
   bold: boolean;
   level?: number; // 结构块的层级（1 章 / 2 节 / 3 目…），人工结构对齐写入；其余块无此字段
+  absorbedInto?: string; // 被拼合进的目标块 id（覆盖率守恒：显式吸收，不是消失）
   findings: unknown[]; // MVP：机器条子未启用，结构预留
   history: HistoryEntry[];
 }
@@ -84,4 +85,15 @@ export function saveGraph(graphPath: string, g: BlockGraph): void {
 
 export function findBlock(g: BlockGraph, id: string): Block | undefined {
   return g.blocks.find((b) => b.id === id);
+}
+
+// 跨页段落拼合的文本连接规则（与抽取的行拼接一致：中文直连、拉丁补空格）
+export function joinParaText(a: string, b: string): string {
+  const c = (a ?? "").replace(/\s+$/, "");
+  const d = (b ?? "").replace(/^\s+/, "");
+  if (!c) return d;
+  if (!d) return c;
+  const cjkL = /[\u3000-\u9fff\uf900-\ufaff\u3040-\u30ff。，、；：？！）》」』】〉”’%)]/.test(c.slice(-1));
+  const cjkR = /[\u3000-\u9fff\uf900-\ufaff\u3040-\u30ff《「『【〈“‘(（]/.test(d[0]);
+  return cjkL || cjkR ? c + d : c + " " + d;
 }

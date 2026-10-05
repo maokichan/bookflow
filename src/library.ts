@@ -44,6 +44,7 @@ export interface BookPaths {
   inbox: string;
   processed: string;
   tasks: string;
+  params: string; // 前级参数（对比度/降噪/锐化），手动控制，入工程可复现
 }
 
 export function pathsFor(id: string): BookPaths {
@@ -57,6 +58,7 @@ export function pathsFor(id: string): BookPaths {
     inbox: path.join(dir, "inbox"),
     processed: path.join(dir, "inbox", "processed"),
     tasks: path.join(dir, "tasks.jsonl"),
+    params: path.join(dir, "params.json"),
   };
 }
 
@@ -134,6 +136,8 @@ export const BEHAVIORS: Record<string, string> = {
 };
 
 // 用户语义的行为：一步"识别" = 抽取 + 页图 + 工作台，内部按序执行（用户不需要知道拆解）
+// "重渲" = 前级参数调整后只重出页图与工作台（不重抽，人工裁决不涉险）
 export const BEHAVIOR_STEPS: Record<string, string[]> = {
   process: ["extract", "render", "export"],
+  reprocess: ["render", "export"],
 };

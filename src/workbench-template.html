@@ -58,7 +58,7 @@
 
   /* 当前裁决条目：底部居中，圆角容器，作为焦点存在 */
   #curcard { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 30;
-    width: min(700px, calc(100vw - 80px)); background: var(--paper); border: 1px solid var(--ink);
+    width: min(920px, calc(100vw - 56px)); background: var(--paper); border: 1px solid var(--ink);
     border-radius: 10px; padding: 10px 16px 8px; }
   #curcard.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--hl); }
   #curcard .cmeta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace;
@@ -71,6 +71,8 @@
   #curcard .cacts .ta { color: #57534a; }
   #curcard .cacts .ta:hover { color: var(--accent); }
   #curcard .cacts .sp { flex: 1; }
+  #curcard:not(.editing) .edit-only { display: none; }
+  #curcard.editing .edit-hide { display: none; }
 
   #modebar { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 40;
     background: var(--ink); color: #fff; padding: 6px 18px; border-radius: 4px; display: none; font-size: 14px; }
@@ -95,13 +97,16 @@
   <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="ccount"></span></div>
   <div class="ctxt" id="ctext"></div>
   <div class="cacts">
-    <button class="ta" data-k="g">盖章 G</button>
-    <button class="ta" data-k="e">改文 E</button>
-    <button class="ta" data-k="h">结构 H</button>
-    <button class="ta" data-k="t">改型 T</button>
+    <button class="ta edit-hide" data-k="g">盖章 G</button>
+    <button class="ta edit-hide" data-k="e">改文 E</button>
+    <button class="ta edit-hide" data-k="h">结构 H</button>
+    <button class="ta edit-hide" data-k="t">改型 T</button>
+    <button class="ta edit-hide" data-k="m">拼合 M</button>
     <span class="sp"></span>
-    <button class="ta" data-k="k">↑ K</button>
-    <button class="ta" data-k="j">↓ J</button>
+    <button class="ta edit-hide" data-k="kup">↑ J</button>
+    <button class="ta edit-hide" data-k="kdn">↓ K</button>
+    <button class="ta edit-only" data-k="n">插注 N</button>
+    <button class="ta edit-only" data-k="enter">完成 ↵</button>
   </div>
 </div>
 <div id="modebar"></div>
@@ -118,12 +123,12 @@ try {
 } catch (e) {}
 function logKey() { return "bookflow:log:" + DATA.title; }
 
-// 待校队列 = 非附着块中仍为 typed 的，按书序；右侧栏 = 已定，逐渐成型的书
+// 待校队列 = 非附着块中仍为 typed 且未被吸收的，按书序；右侧栏 = 已定，逐渐成型的书
 function queue() {
   var arr = [];
   for (var i = 0; i < DATA.blocks.length; i++) {
     var b = DATA.blocks[i];
-    if (b.state === "typed" && b.type !== "furniture") arr.push(b);
+    if (b.state === "typed" && b.type !== "furniture" && !b.absorbedInto) arr.push(b);
   }
   return arr;
 }
@@ -146,6 +151,10 @@ function applyToBlock(b, action, payload) {
   else if (action === "edit") b.text = payload.text;
   else if (action === "reclassify") b.type = payload.type;
   else if (action === "structure") { b.type = "structure"; b.level = payload.level; }
+  else if (action === "merge") {
+    var m = DATA.blocks.find(function (x) { return x.id === payload.absorb; });
+    if (m) { b.text = joinPara(b.text, m.text); m.absorbedInto = b.id; }
+  }
 }
 // 镜像日志重放（与回放器同规则，非法则跳过）
 function replayMirror() {
@@ -160,6 +169,10 @@ function replayMirror() {
     } else if (a.action === "edit") b.text = a.payload.text;
     else if (a.action === "reclassify") b.type = a.payload.type;
     else if (a.action === "structure") { b.type = "structure"; b.level = a.payload.level; }
+    else if (a.action === "merge") {
+      var m = DATA.blocks.find(function (x) { return x.id === a.payload.absorb; });
+      if (m && !m.absorbedInto) { b.text = joinPara(b.text, m.text); m.absorbedInto = b.id; }
+    }
   }
 }
 
@@ -211,13 +224,15 @@ function renderDone() {
   host.innerHTML = "<div class='rh'>已定 · 成型中的书</div>" + html;
 }
 
-// ===== 大纲（左栏：结构树即导航） =====
+// ===== 大纲（左栏：结构树即导航；计数 = 归属到该结构的块数） =====
 function renderOutline() {
   var host = document.getElementById("leftrail");
-  var items = [];
+  var own = owners();
+  var items = [], counts = {};
   for (var i = 0; i < DATA.blocks.length; i++) {
     var b = DATA.blocks[i];
     if (b.type === "structure" && b.level) items.push(b);
+    if (own[b.id] && b.id !== own[b.id]) counts[own[b.id]] = (counts[own[b.id]] ?? 0) + 1;
   }
   items.sort(function (x, y) { return x.page - y.page || x.bbox.y0 - y.bbox.y0; });
   if (!items.length) { host.innerHTML = "<div class='rh'>结构</div><div class='ol-empty'>空 —— 选中标题块按 H 标层级</div>"; return; }
@@ -225,9 +240,9 @@ function renderOutline() {
   for (var j = 0; j < items.length; j++) {
     var t = items[j];
     html += "<div class='ol-item lv" + t.level + "' data-id='" + t.id + "'>"
-      + esc(t.text.slice(0, 22)) + "<span class='opg'>" + t.page + "</span></div>";
+      + esc(t.text.slice(0, 20)) + "<span class='opg'>" + t.page + " · " + (counts[t.id] ?? 0) + "块</span></div>";
   }
-  host.innerHTML = "<div class='rh'>结构</div>" + html;
+  host.innerHTML = "<div class='rh'>结构 · 括号内为归属块数</div>" + html;
 }
 
 // ===== 动作实现 =====
@@ -256,6 +271,80 @@ function doStructure(n) {
   state.levelMode = false; modebar("");
   renderAll();
   if (cur() === b) move(1); // 裁决完即下一个
+}
+
+// ===== 手感：跨页拼合（声明式吸收，守恒不破） =====
+function joinPara(a, b) {
+  var c = (a || "").replace(/\s+$/, ""), d = (b || "").replace(/^\s+/, "");
+  if (!c) return d; if (!d) return c;
+  var cjkL = /[\u3000-\u9fff\uf900-\ufaff\u3040-\u30ff。，、；：？！）》」』】〉”’%)]/.test(c.slice(-1));
+  var cjkR = /[\u3000-\u9fff\uf900-\ufaff\u3040-\u30ff《「『【〈“‘(（]/.test(d[0]);
+  return (cjkL || cjkR) ? c + d : c + " " + d;
+}
+function doMerge() {
+  var b = cur(); if (!b) return;
+  if (b.type !== "flow") { toast("仅流转块可拼合"); return; }
+  var idx = DATA.blocks.indexOf(b), next = null;
+  for (var i = idx + 1; i < DATA.blocks.length; i++) {
+    var n = DATA.blocks[i];
+    if (n.type === "furniture") continue; // 页眉页码可隔着
+    if (n.type !== "flow" || n.state !== "typed" || n.absorbedInto) { toast("相邻块不可拼合（" + n.id + "）"); return; }
+    next = n; break;
+  }
+  if (!next) { toast("书序里没有可拼合的下一块"); return; }
+  push("merge", b, { absorb: next.id });
+  toast(b.id + " ⊕ " + next.id);
+  renderAll(); // 拼合后的块仍是当前条目，继续审它
+}
+
+// ===== 结构辅助：按编号模式建议层级（手动为主，系统填"是几级"） =====
+function suggestLevel(t) {
+  t = (t || "").trim();
+  if (!t) return 0;
+  if (/^(第[一二三四五六七八九十百0-9]+(章|部|编|篇))/.test(t)) return 1;
+  if (/^(Part|Chapter)\s*[0-9一二三四五六七八九十]/i.test(t)) return 1;
+  if (/^(第[一二三四五六七八九十百0-9]+(节|讲|回))/.test(t)) return 2;
+  if (/^[一二三四五六七八九十]+、/.test(t)) return 2;
+  if (/^\d+\.\d+(?!\.\d)/.test(t)) return 2;
+  if (/^\d+\.\d+\.\d+/.test(t)) return 3;
+  if (/^[（(][一二三四五六七八九十1-9]+[)）]/.test(t)) return 3;
+  return 0;
+}
+
+// ===== 注释符：编辑态 N 键，按本页已有标记自增 =====
+function nextMarker() {
+  var S = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
+  var b = cur(); if (!b) return "①";
+  var max = 0;
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var x = DATA.blocks[i];
+    if (x.page !== b.page) continue;
+    var txt = (x.id === b.id && state.editing) ? document.getElementById("ctext").innerText : x.text;
+    for (var j = 0; j < txt.length; j++) { var k = S.indexOf(txt[j]); if (k >= max) max = k + 1; }
+  }
+  return S[Math.min(max, S.length - 1)];
+}
+function insertAtCaret(el, s) {
+  var sel = window.getSelection();
+  if (!sel.rangeCount) { el.appendChild(document.createTextNode(s)); return; }
+  var r = sel.getRangeAt(0);
+  r.deleteContents();
+  var n = document.createTextNode(s);
+  r.insertNode(n);
+  r.setStartAfter(n); r.setEndAfter(n);
+  sel.removeAllRanges(); sel.addRange(r);
+}
+
+// ===== 归属：块按书序归入最近的前置结构节点（同页内标题线以上的自然归前节） =====
+function owners() {
+  var map = {}, owner = null;
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var b = DATA.blocks[i];
+    if (b.type === "furniture") continue;
+    if (b.type === "structure" && b.level) { owner = b.id; map[b.id] = owner; continue; }
+    if (owner) map[b.id] = owner;
+  }
+  return map;
 }
 function commitEdit() {
   var ed = document.getElementById("ctext");
@@ -341,9 +430,14 @@ function updateSelection() {
   box.style.height = (b.bbox.y1 - b.bbox.y0) * k + 6 + "px";
 }
 function centerSelection() {
+  // 让位居中：高亮框对齐到「底部容器以上」可视区的中心，永不被容器盖住
   var b = cur();
-  if (b && PAGES[b.page] && PAGES[b.page].bbox.style.display === "block")
-    PAGES[b.page].bbox.scrollIntoView({ block: "center" });
+  if (!(b && PAGES[b.page] && PAGES[b.page].bbox.style.display === "block")) return;
+  var pane = center(), box = PAGES[b.page].bbox;
+  var cardH = document.getElementById("curcard").offsetHeight + 40;
+  var zoneH = Math.max(160, pane.clientHeight - 36 - cardH);
+  var rel = box.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
+  pane.scrollTop = Math.max(0, rel - zoneH / 2 + box.offsetHeight / 2);
 }
 function center() { return document.getElementById("center"); }
 
@@ -386,10 +480,13 @@ document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
     var k = btn.getAttribute("data-k");
     if (k === "g") doGate(false);
     else if (k === "e") { if (cur()) { state.editing = true; renderCurrent(); } }
-    else if (k === "h") { if (cur()) { state.levelMode = true; modebar("结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消）"); } }
+    else if (k === "h") { if (cur()) { state.levelMode = true; showLevelSuggest(); } }
     else if (k === "t") { state.typeMode = true; modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）"); }
-    else if (k === "j") move(1);
-    else if (k === "k") move(-1);
+    else if (k === "m") doMerge();
+    else if (k === "n") { if (state.editing) insertAtCaret(document.getElementById("ctext"), nextMarker()); }
+    else if (k === "enter") { if (state.editing) commitEdit(); }
+    else if (k === "kup") move(-1);
+    else if (k === "kdn") move(1);
   });
 });
 window.addEventListener("resize", function () {
@@ -413,6 +510,10 @@ document.addEventListener("keydown", function (e) {
   if (state.editing) {
     if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
     else if (e.key === "Escape") { state.editing = false; renderAll(); }
+    else if (e.key === "n" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      insertAtCaret(document.getElementById("ctext"), nextMarker());
+    }
     return;
   }
   if (state.typeMode) {
@@ -421,13 +522,14 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   if (state.levelMode) {
-    if (e.key >= "1" && e.key <= "3") { e.preventDefault(); doStructure(Number(e.key)); }
+    if (e.key === "Enter" && state.suggest) { e.preventDefault(); doStructure(state.suggest); }
+    else if (e.key >= "1" && e.key <= "3") { e.preventDefault(); doStructure(Number(e.key)); }
     else if (e.key === "Escape") { state.levelMode = false; modebar(""); }
     return;
   }
   switch (e.key) {
-    case "j": case "ArrowDown": e.preventDefault(); move(1); break;
-    case "k": case "ArrowUp": e.preventDefault(); move(-1); break;
+    case "j": case "ArrowUp": e.preventDefault(); move(-1); break;
+    case "k": case "ArrowDown": e.preventDefault(); move(1); break;
     case "e": {
       e.preventDefault(); // 进编辑态的同一个键不再漏进编辑器
       var b0 = cur(); if (!b0) break;
@@ -435,6 +537,7 @@ document.addEventListener("keydown", function (e) {
     }
     case "g": e.preventDefault(); doGate(false); break;
     case "y": e.preventDefault(); doGate(true); break;
+    case "m": e.preventDefault(); doMerge(); break;
     case "t": {
       state.typeMode = true;
       modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）");
@@ -443,7 +546,7 @@ document.addEventListener("keydown", function (e) {
     case "h": {
       if (!cur()) break;
       state.levelMode = true;
-      modebar("结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消）");
+      showLevelSuggest();
       break;
     }
     case "i": toggleZoom(); break;
@@ -452,6 +555,13 @@ document.addEventListener("keydown", function (e) {
     case "s": case "S": e.preventDefault(); exportLog(); break;
   }
 });
+
+function showLevelSuggest() {
+  state.suggest = suggestLevel(cur() ? cur().text : "");
+  modebar(state.suggest
+    ? "结构层级 → 回车认建议 L" + state.suggest + " · 或 1 章 2 节 3 目 （Esc 取消）"
+    : "结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消）");
+}
 
 // ===== 启动 =====
 document.getElementById("title").textContent = DATA.title + " —— 原文校对";

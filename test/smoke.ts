@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { ROOT } from "../src/model.ts";
+import { ROOT, joinParaText } from "../src/model.ts";
 import { LIBRARY, loadRegistry, saveRegistry, pathsFor, deriveStage } from "../src/library.ts";
 
 const BOOK = "test-book";
@@ -72,10 +72,21 @@ const flow1 = g.blocks.find((b) => b.type === "flow" && b.text.includes("一九�
 const flow2 = g.blocks.find((b) => b.type === "flow" && b.text.includes("The Chemical Brothers"))!;
 const quote = g.blocks.find((b) => b.type === "flow" && b.text.includes("我们从来不觉得"))!;
 const editedText = flow2.text.replace("more melodic", "更加旋律化（人工校订）");
+// 拼合样本：书序相邻、未被其他动作触及的一对流转块
+let mSrc: any, mTgt: any;
+for (let i = 0; i < g.blocks.length - 1; i++) {
+  const a = g.blocks[i], c = g.blocks[i + 1];
+  if (a.type === "flow" && c.type === "flow" && a.state === "typed" && c.state === "typed"
+    && ![flow1.id, flow2.id, quote.id].includes(a.id) && ![flow1.id, flow2.id, quote.id].includes(c.id)) {
+    mSrc = a; mTgt = c; break;
+  }
+}
+const mergedText = joinParaText(mSrc.text, mTgt.text);
 const logLines = [
   { ts: new Date().toISOString(), block: flow1.id, action: "gate", payload: { state: "原文已定" } },
   { ts: new Date().toISOString(), block: flow2.id, action: "edit", payload: { text: editedText } },
   { ts: new Date().toISOString(), block: quote.id, action: "reclassify", payload: { type: "untyped" } },
+  { ts: new Date().toISOString(), block: mSrc.id, action: "merge", payload: { absorb: mTgt.id } },
   { ts: new Date().toISOString(), block: flow1.id, action: "gate", payload: { state: "原文已定" } }, // 非法：重复盖章
 ];
 const logName = "smoke-test.jsonl";
@@ -88,9 +99,13 @@ const g2 = JSON.parse(readFileSync(P.graph, "utf-8"));
 const b1 = g2.blocks.find((b) => b.id === flow1.id)!;
 const b2 = g2.blocks.find((b) => b.id === flow2.id)!;
 const b3 = g2.blocks.find((b) => b.id === quote.id)!;
+const mS2 = g2.blocks.find((b) => b.id === mSrc.id)!;
+const mT2 = g2.blocks.find((b) => b.id === mTgt.id)!;
 ok(b1.state === "原文已定", `${flow1.id} → 原文已定`);
 ok(b2.text === editedText, `${flow2.id} 改文生效`);
 ok(b3.type === "untyped", `${quote.id} → untyped`);
+ok(mS2.text === mergedText, `${mSrc.id} 拼合文本生效`);
+ok(mT2.absorbedInto === mSrc.id, `${mTgt.id} 已标记吸收`);
 ok(readdirSync(P.inbox).filter((f) => f.endsWith(".jsonl")).length === 0, "inbox 已清空");
 ok(existsSync(path.join(P.processed, logName)), "日志归档到 processed/");
 ok(r.stdout.toString().includes("拒绝 1"), "非法动作被拒（重复盖章）");
