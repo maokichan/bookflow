@@ -1,0 +1,10 @@
+{
+  "contrast": 50,
+  "denoise": 0,
+  "sharpen": 0,
+  "confirmedAt": "2026-10-05T14:13:39.001Z",
+  "fxHash": "1oigf22",
+  "ocr": {
+    "engine": "textlayer"
+  }
+}
