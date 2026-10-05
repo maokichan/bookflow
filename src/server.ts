@@ -4,16 +4,17 @@
 // 队列当前串行（并发度是配置不是架构），任务并行产出各自产物，块图唯一写者不变。
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, statSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { ROOT } from "./model.ts";
-import { LIBRARY, loadRegistry, saveRegistry, bookDir, pathsFor, deriveStage, BEHAVIORS, type BookMeta } from "./library.ts";
+import { LIBRARY, loadRegistry, saveRegistry, bookDir, pathsFor, deriveStage, progress, BEHAVIORS, BEHAVIOR_STEPS, type BookMeta } from "./library.ts";
 
 const PORT = Number(process.env.BOOKFLOW_PORT ?? 8477);
+const CONFIG = path.join(LIBRARY, "config.json"); // 功能层级：引擎配置的家（含密钥，不入库）
 
-// ---------- 任务队列（串行起步） ----------
+// ---------- 任务队列（串行起步；复合行为按步链执行，如 识别 = 抽取→页图→工作台） ----------
 interface Task {
-  id: string; book: string; behavior: string;
+  id: string; book: string; behavior: string; steps: string[]; stepIdx: number;
   status: "queued" | "running" | "done" | "error";
   startedAt?: string; endedAt?: string; exitCode?: number | null; output?: string;
 }
@@ -22,7 +23,10 @@ const waiting: Task[] = [];
 let running = false;
 
 function enqueue(book: string, behavior: string): Task {
-  const t: Task = { id: `${behavior}-${Date.now()}`, book, behavior, status: "queued" };
+  const t: Task = {
+    id: `${behavior}-${Date.now()}`, book, behavior,
+    steps: BEHAVIOR_STEPS[behavior] ?? [behavior], stepIdx: 0, status: "queued",
+  };
   tasks.unshift(t);
   waiting.push(t);
   pump();
@@ -35,11 +39,17 @@ function pump(): void {
   running = true;
   t.status = "running";
   t.startedAt = new Date().toISOString();
-  const child = spawn(process.execPath, [BEHAVIORS[t.behavior], "--book", t.book], { cwd: ROOT });
+  spawnStep(t);
+}
+
+function spawnStep(t: Task): void {
+  const step = t.steps[t.stepIdx];
+  const child = spawn(process.execPath, [BEHAVIORS[step], "--book", t.book], { cwd: ROOT });
   let out = "";
   child.stdout.on("data", (d) => (out += d));
   child.stderr.on("data", (d) => (out += d));
   child.on("close", (code) => {
+    if (code === 0 && t.stepIdx < t.steps.length - 1) { t.stepIdx++; spawnStep(t); return; }
     t.status = code === 0 ? "done" : "error";
     t.exitCode = code;
     t.endedAt = new Date().toISOString();
@@ -109,7 +119,18 @@ const server = createServer(async (req, res) => {
     }
     if (p === "/api/books" && req.method === "GET") {
       const inflight = new Set(tasks.filter((t) => t.status === "queued" || t.status === "running").map((t) => t.book));
-      json(res, 200, loadRegistry().map((m) => ({ ...m, stage: deriveStage(m.id), inflight: inflight.has(m.id) })));
+      json(res, 200, loadRegistry().map((m) => ({ ...m, stage: deriveStage(m.id), progress: progress(m.id), inflight: inflight.has(m.id) })));
+      return;
+    }
+    if (p === "/api/config" && req.method === "GET") {
+      json(res, 200, existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, "utf-8")) : {});
+      return;
+    }
+    if (p === "/api/config" && req.method === "POST") {
+      const body = await readBody(req);
+      mkdirSync(LIBRARY, { recursive: true });
+      writeFileSync(CONFIG, JSON.stringify(body, null, 2), "utf-8");
+      json(res, 200, { ok: true });
       return;
     }
     if (p === "/api/books" && req.method === "POST") {
@@ -130,7 +151,7 @@ const server = createServer(async (req, res) => {
       const id = decodeURIComponent(bookTask[1]);
       if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
       const { behavior } = await readBody(req);
-      if (!BEHAVIORS[behavior]) { json(res, 400, { error: `未知行为 ${behavior}` }); return; }
+      if (!BEHAVIORS[behavior] && !BEHAVIOR_STEPS[behavior]) { json(res, 400, { error: `未知行为 ${behavior}` }); return; }
       json(res, 200, enqueue(id, behavior));
       return;
     }
@@ -139,7 +160,7 @@ const server = createServer(async (req, res) => {
       const id = decodeURIComponent(bookDetail[1]);
       const meta = findBook(id);
       if (!meta) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
-      json(res, 200, { ...meta, stage: deriveStage(id) });
+      json(res, 200, { ...meta, stage: deriveStage(id), progress: progress(id) });
       return;
     }
     if (p === "/api/tasks" && req.method === "GET") {

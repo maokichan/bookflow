@@ -2,198 +2,292 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>bookflow 书架</title>
+<title>bookflow</title>
 <style>
+  :root {
+    --ink: #2a2a28; --paper: #faf9f6; --desk: #eceade; --line: #d8d4cc; --dim: #8a857c;
+    --accent: #b4552d; --ok: #4a7c59; --hair: #e4e0d6;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: "Source Han Serif SC", "Noto Serif SC", serif; background: #f7f4ee; color: #2d2a24; }
-  header { display: flex; align-items: baseline; gap: 16px; padding: 14px 22px; background: #fff; border-bottom: 1px solid #e0d9cc; }
-  header h1 { font-size: 19px; margin: 0; }
-  header .sub { font-size: 12px; color: #8a8374; }
-  main { max-width: 1080px; margin: 0 auto; padding: 22px; }
-  .panel { background: #fff; border: 1px solid #e0d9cc; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
-  .panel h2 { font-size: 14px; margin: 0 0 10px; color: #6b6455; font-weight: 600; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  input[type=text] { flex: 1; min-width: 200px; padding: 7px 10px; border: 1px solid #cfc7b6; border-radius: 5px; font: inherit; background: #fdfcf9; }
-  button { padding: 7px 14px; border: 1px solid #b8ad97; background: #f0ebe0; color: #2d2a24; border-radius: 5px; font: inherit; cursor: pointer; }
-  button:hover { background: #e6dfcf; }
-  button.primary { background: #4a4237; border-color: #4a4237; color: #f7f4ee; }
-  button:disabled { opacity: .45; cursor: default; }
-  .book { cursor: pointer; }
-  .book:hover { border-color: #b8ad97; }
-  .book .t { font-size: 16px; font-weight: 600; }
-  .book .meta { font-size: 12px; color: #8a8374; margin-top: 2px; }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-  .chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid #d8d0bf; background: #faf7f0; color: #6b6455; }
-  .chip.on { background: #4a4237; border-color: #4a4237; color: #f7f4ee; }
-  .chip.dim { opacity: .45; }
-  .chip.busy { background: #a8632a; border-color: #a8632a; color: #fff; }
-  .back { margin-bottom: 14px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-  table.tasks { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  table.tasks th, table.tasks td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #eee8db; }
-  table.tasks th { color: #8a8374; font-weight: 600; }
-  .st-done { color: #3d6b35; } .st-error { color: #a8322a; } .st-running, .st-queued { color: #a8632a; }
-  .counts { font-size: 12.5px; color: #6b6455; margin-top: 8px; line-height: 1.7; }
-  a { color: #4a4237; }
-  .err { color: #a8322a; font-size: 13px; margin-top: 8px; min-height: 1em; }
-  .hint { font-size: 12px; color: #a39a87; margin-top: 6px; }
-  pre.out { background: #faf7f0; border: 1px solid #eee8db; border-radius: 5px; padding: 8px; font-size: 11.5px; max-height: 180px; overflow: auto; white-space: pre-wrap; }
+  body { margin: 0; background: var(--desk); color: var(--ink);
+    font-family: "Times New Roman", "Noto Serif SC", "SimSun", serif; }
+  button { font: inherit; background: none; border: none; color: var(--ink); cursor: pointer; padding: 0; }
+  .ta { font-size: 15px; font-weight: 700; letter-spacing: .02em; color: var(--ink); }
+  .ta:hover { color: var(--accent); }
+  .ta.acc { color: var(--accent); }
+  .ta[disabled] { color: var(--dim); cursor: default; }
+
+  header { display: flex; align-items: baseline; gap: 20px; padding: 14px 26px 10px; }
+  header h1 { font-size: 19px; margin: 0; font-weight: 700; letter-spacing: .04em; }
+  header .sp { flex: 1; }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 6px 26px 80px; }
+
+  /* 书架 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 26px 22px; }
+  .card { cursor: pointer; }
+  .cover { width: 100%; aspect-ratio: 5/7; background: var(--paper); border: 1px solid var(--line);
+    overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover .tcov { padding: 18px; font-size: 17px; font-weight: 700; line-height: 1.5; text-align: center; color: var(--ink); }
+  .card:hover .cover { border-color: var(--ink); }
+  .card .t { font-size: 15px; font-weight: 700; margin-top: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar { height: 2px; background: var(--hair); margin-top: 7px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .card .p { font-size: 12.5px; color: var(--dim); margin-top: 5px; }
+
+  /* 书详情 */
+  .detail { display: flex; gap: 34px; align-items: flex-start; }
+  .dcover { width: 150px; flex: none; }
+  .dcover .cover { aspect-ratio: 5/7; }
+  .dcover .t { font-size: 13px; color: var(--dim); margin-top: 8px; }
+  .pipe { flex: 1; padding-top: 26px; }
+  .nodes { display: flex; align-items: flex-start; }
+  .node { flex: 1; text-align: center; position: relative; }
+  .node .dot { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--dim);
+    background: var(--desk); margin: 0 auto; position: relative; z-index: 1; }
+  .node.done .dot { background: var(--ink); border-color: var(--ink); }
+  .node.cur .dot { border-color: var(--accent); background: var(--paper); box-shadow: 0 0 0 3px rgba(180,85,45,.18); }
+  .node::before { content: ""; position: absolute; top: 6px; left: -50%; width: 100%; height: 1.5px; background: var(--dim); opacity: .4; }
+  .node:first-child::before { display: none; }
+  .node.done::before, .node.cur::before { background: var(--ink); opacity: 1; }
+  .node .lb { font-size: 13px; margin-top: 9px; color: var(--dim); }
+  .node.done .lb, .node.cur .lb { color: var(--ink); }
+  .node .sub { font-size: 11px; color: var(--dim); margin-top: 3px; min-height: 14px; }
+  .node .act { margin-top: 10px; min-height: 24px; }
+
+  .tasks { margin-top: 46px; font-size: 12.5px; color: var(--dim); line-height: 1.9; }
+  .tasks .ok { color: var(--ok); } .tasks .bad { color: #a8322a; } .tasks .run { color: var(--accent); }
+
+  /* 配置（功能层级） */
+  #cfg { position: fixed; inset: 0; background: rgba(42,42,40,.35); display: none; z-index: 50; }
+  #cfg .panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: var(--paper); border: 1px solid var(--line); width: min(560px, 92vw); max-height: 86vh; overflow: auto; padding: 22px 26px; }
+  #cfg h3 { font-size: 15px; margin: 18px 0 8px; }
+  #cfg h3:first-child { margin-top: 0; }
+  #cfg label { display: block; font-size: 12.5px; color: var(--dim); margin: 8px 0 3px; }
+  #cfg input { width: 100%; padding: 6px 9px; border: 1px solid var(--line); background: #fff; font: inherit; font-size: 13px; }
+  #cfg .row { display: flex; gap: 18px; justify-content: flex-end; margin-top: 20px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>bookflow 书架</h1>
-  <span class="sub">书籍状态管理 —— 每本书走到哪、正在做什么，从这里进</span>
+  <button class="ta" id="homeBtn" style="display:none">‹ 书架</button>
+  <h1>bookflow</h1>
+  <span class="sp"></span>
+  <button class="ta" id="cfgBtn">能力配置</button>
 </header>
 <main id="main"></main>
+
+<div id="cfg">
+  <div class="panel">
+    <h3>OCR · 云端</h3>
+    <label>接口地址</label><input id="c-ocrcloud-url" type="text">
+    <label>密钥</label><input id="c-ocrcloud-key" type="password">
+    <label>模型</label><input id="c-ocrcloud-model" type="text">
+    <h3>OCR · 本地</h3>
+    <label>引擎</label><input id="c-ocrlocal-engine" type="text" placeholder="">
+    <h3>LLM</h3>
+    <label>接口地址</label><input id="c-llm-url" type="text">
+    <label>密钥</label><input id="c-llm-key" type="password">
+    <label>模型</label><input id="c-llm-model" type="text">
+    <div class="row">
+      <button class="ta" id="cfgClose">关闭</button>
+      <button class="ta acc" id="cfgSave">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = (h) => { const d = document.createElement("div"); d.innerHTML = h; return d.firstElementChild; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-let current = null; // 当前打开的书 id
-let pollTimer = null;
-
 const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined)
   .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
 
-function chip(label, on, dim, busy) {
-  return `<span class="chip ${on ? "on" : ""} ${dim ? "dim" : ""} ${busy ? "busy" : ""}">${label}</span>`;
-}
+const STAGES = [
+  { key: "import", label: "导入" },
+  { key: "process", label: "识别" },
+  { key: "proof", label: "原文校对" },
+  { key: "mt", label: "翻译" },
+  { key: "proof2", label: "双语校对" },
+  { key: "check", label: "机器检查" },
+];
+const BEHAVIOR_LABEL = { process: "识别", extract: "抽取", render: "页图", export: "工作台", replay: "回放" };
 
-function stateSummary(stage) {
-  const parts = [];
-  for (const [k, v] of Object.entries(stage.blockStates || {})) parts.push(`${k} ${v}`);
-  return parts.length ? parts.join(" · ") : "—";
+function nodeState(key, b, inflight) {
+  const s = b.stage, pr = b.progress;
+  if (key === "import") return "done";
+  if (key === "process") {
+    if (inflight) return "run";
+    return s.exported ? "done" : "cur";
+  }
+  if (key === "proof") return s.exported ? (pr.proofTotal && pr.proofDone >= pr.proofTotal ? "done" : "cur") : "lock";
+  return "lock"; // 翻译 / 双语校对 / 机器检查：策略位未点亮
 }
 
 // ---------- 书架 ----------
 async function renderShelf() {
-  stopPoll();
+  location.hash === "" && history.replaceState({ guard: true }, "", "#");
+  document.getElementById("homeBtn").style.display = "none";
   const books = await api("/api/books");
   const main = document.getElementById("main");
   main.innerHTML = "";
-  const imp = $(`<div class="panel"><h2>导入一本书</h2>
-    <div class="row">
-      <input type="text" id="f-title" placeholder="书名（如：为何一切尚未消失）">
-      <input type="text" id="f-id" placeholder="书号（可选，英文短横线）" style="flex:.5">
-      <input type="file" id="f-pdf" accept=".pdf,application/pdf">
-      <button class="primary" id="f-go">导入</button>
-    </div>
-    <div class="hint">点导入会弹出文件资源管理器选 PDF；源文件复制进这本书自己的目录，图书馆原件永远只读。</div>
-    <div class="err" id="f-err"></div></div>`);
+
+  const imp = $(`<div class="row" style="margin-bottom:30px">
+    <input type="file" id="f-pdf" accept=".pdf,application/pdf" style="font:inherit;font-size:13px">
+    <input type="text" id="f-title" placeholder="书名" style="width:220px;padding:5px 9px;border:1px solid var(--line);background:var(--paper);font:inherit;font-size:13px">
+    <button class="ta acc" id="f-go">导入</button></div>`);
   main.appendChild(imp);
   imp.querySelector("#f-go").onclick = async () => {
-    const err = imp.querySelector("#f-err");
-    err.textContent = "";
     try {
       const f = imp.querySelector("#f-pdf").files[0];
-      if (!f) throw new Error("先选一个 PDF 文件");
-      const q = new URLSearchParams({
-        title: imp.querySelector("#f-title").value,
-        id: imp.querySelector("#f-id").value,
-        name: f.name,
-      });
-      const m = await fetch("/api/books/upload?" + q.toString(), { method: "POST", body: f })
+      if (!f) throw new Error("先选 PDF");
+      const q = new URLSearchParams({ title: imp.querySelector("#f-title").value || f.name.replace(/\.pdf$/i, ""), name: f.name });
+      const m = await fetch("/api/books/upload?" + q, { method: "POST", body: f })
         .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
       openBook(m.id);
-    } catch (e) { err.textContent = "导入失败：" + e.message; }
+    } catch (e) { toast(e.message); }
   };
 
   const grid = $(`<div class="grid"></div>`);
   main.appendChild(grid);
-  if (!books.length) grid.innerHTML = `<div class="panel">书架空 —— 从上面导入第一本。</div>`;
   for (const b of books) {
-    const s = b.stage;
-    const card = $(`<div class="panel book">
+    const pr = b.progress || { pct: 0 };
+    const card = $(`<div class="card">
+      <div class="cover">${b.stage.rendered
+        ? `<img src="/library/${encodeURIComponent(b.id)}/pages/p001.png" onerror="this.parentNode.innerHTML='<div class=tcov>${esc(b.title)}</div>'">`
+        : `<div class="tcov">${esc(b.title)}</div>`}</div>
       <div class="t">${esc(b.title)}</div>
-      <div class="meta">${esc(b.id)} · ${s.blockCount} 块 / ${s.pageCount} 页</div>
-      <div class="chips">
-        ${chip("抽取", s.extracted)}${chip("页图", s.rendered)}${chip("工作台", s.exported)}
-        ${chip("原文已定", false, !(s.blockStates["原文已定"] > 0))}
-        ${b.inflight ? chip("任务进行中", false, false, true) : ""}
-      </div></div>`);
-    card.onclick = () => openBook(b.id);
+      <div class="bar"><i style="width:${pr.pct}%"></i></div>
+      <div class="p">${pr.pct}%${b.inflight ? " · 识别中" : ""}</div>
+    </div>`);
+    card.onclick = () => { location.hash = "#/b/" + b.id; };
     grid.appendChild(card);
   }
+  pollBooks(() => { if (location.hash === "" || location.hash === "#") renderShelf(); });
 }
 
-// ---------- 单书状态页 ----------
+// ---------- 书详情：流水线即状态，动作绑在当前节点上 ----------
 async function renderBook(id) {
+  document.getElementById("homeBtn").style.display = "";
   const b = await api("/api/books/" + encodeURIComponent(id));
-  const tasks = (await api("/api/tasks")).filter((t) => t.book === id).slice(0, 12);
-  const s = b.stage;
+  const tasks = (await api("/api/tasks")).filter((t) => t.book === id).slice(0, 5);
+  const inflight = (await api("/api/tasks")).some((t) => t.book === id && (t.status === "queued" || t.status === "running"));
   const main = document.getElementById("main");
-  main.innerHTML = "";
-  const back = $(`<button class="back">← 书架</button>`);
-  back.onclick = () => { current = null; renderShelf(); };
-  main.appendChild(back);
+  const pr = b.progress, s = b.stage;
+  const states = Object.keys(STAGES).map(() => "");
 
-  const head = $(`<div class="panel">
-    <h2>${esc(b.title)} <span style="font-weight:400;color:#8a8374">（${esc(b.id)}）</span></h2>
-    <div class="chips">
-      ${chip("导入", true)}
-      ${chip("抽取", s.extracted)}
-      ${chip("页图", s.rendered)}
-      ${chip("工作台", s.exported)}
-      ${chip("原文已定", false, !(s.blockStates["原文已定"] > 0))}
-      ${chip("OCR 第二意见", false, true)}${chip("MT", false, true)}${chip("机器三域", false, true)}
+  const nodes = STAGES.map((st) => {
+    const k = nodeState(st.key, b, inflight && st.key === "process");
+    const cls = k === "done" ? "done" : k === "cur" ? "cur" : k === "run" ? "cur" : "";
+    let sub = "", act = "";
+    if (st.key === "proof" && s.exported) sub = `${pr.proofDone} / ${pr.proofTotal}`;
+    if (st.key === "process" && k === "run") act = `<button class="ta" disabled>识别中…</button>`;
+    if (st.key === "process" && k === "cur") act = `<button class="ta acc" data-a="process">识别</button>`;
+    if (st.key === "proof" && s.exported) act = `<button class="ta acc" data-a="proof">校对</button>`;
+    return `<div class="node ${cls}"><div class="dot"></div><div class="lb">${st.label}</div><div class="sub">${sub}</div><div class="act">${act}</div></div>`;
+  }).join("");
+
+  main.innerHTML = "";
+  main.appendChild($(`<div class="detail">
+    <div class="dcover">
+      <div class="cover">${s.rendered
+        ? `<img src="/library/${encodeURIComponent(id)}/pages/p001.png" onerror="this.style.display='none'">`
+        : `<div class="tcov">${esc(b.title)}</div>`}</div>
+      <div class="t">${pr.pct}%</div>
     </div>
-    <div class="counts">块 ${s.blockCount} · 页 ${s.pageCount} · 状态分布：${esc(stateSummary(s))}<br>
-    灰色格为未点亮的行为（策略位），点亮次序见 TODO。</div>
-    <div class="row" style="margin-top:12px">
-      <button data-b="extract">抽取</button>
-      <button data-b="render">渲染页图</button>
-      <button data-b="export">导出工作台</button>
-      <button data-b="replay">回放裁决</button>
-      ${s.exported ? `<a href="/library/${encodeURIComponent(id)}/workbench.html" target="_blank"><button>打开工作台 ↗</button></a>` : ""}
-    </div>
-    <div class="hint">行为以任务入队执行，不阻塞书架；点完可以立刻去别的书。</div>
-    <div class="err" id="b-err"></div>
-  </div>`);
-  head.querySelectorAll("button[data-b]").forEach((btn) => {
+    <div class="pipe"><div class="nodes">${nodes}</div></div>
+  </div>`));
+
+  const tk = $(`<div class="tasks"></div>`);
+  for (const t of tasks) {
+    const secs = t.startedAt && t.endedAt ? Math.round((new Date(t.endedAt) - new Date(t.startedAt)) / 1000) : null;
+    tk.appendChild($(`<div>${t.status === "done" ? '<span class="ok">✓</span>' : t.status === "error" ? '<span class="bad">✗</span>' : '<span class="run">…</span>'}
+      ${BEHAVIOR_LABEL[t.behavior] || t.behavior}${secs != null ? " · " + secs + " 秒" : ""}
+      <span style="opacity:.6">${(t.endedAt || "").slice(5, 16).replace("T", " ")}</span></div>`));
+  }
+  if (tasks.length) main.appendChild(tk);
+
+  main.querySelectorAll("button[data-a]").forEach((btn) => {
     btn.onclick = async () => {
-      head.querySelector("#b-err").textContent = "";
-      try {
-        await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: btn.dataset.b });
+      if (btn.dataset.a === "process") {
+        await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "process" });
         renderBook(id);
-      } catch (e) { head.querySelector("#b-err").textContent = e.message; }
+      } else if (btn.dataset.a === "proof") {
+        window.open(`/library/${encodeURIComponent(id)}/workbench.html`, "_blank");
+      }
     };
   });
-  main.appendChild(head);
 
-  const tp = $(`<div class="panel"><h2>任务记录（近 ${tasks.length} 条）</h2></div>`);
-  if (tasks.length) {
-    const rows = tasks.map((t) => `<tr>
-      <td>${esc(t.behavior)}</td>
-      <td class="st-${t.status}">${esc(t.status)}</td>
-      <td>${esc(t.startedAt ? t.startedAt.slice(11, 19) : "")}</td>
-      <td>${esc(t.endedAt ? t.endedAt.slice(11, 19) : "")}</td>
-      <td>${t.output ? `<pre class="out">${esc(t.output.split("\n").slice(-3).join("\n"))}</pre>` : ""}</td>
-    </tr>`).join("");
-    tp.appendChild($(`<table class="tasks"><tr><th>行为</th><th>状态</th><th>开始</th><th>结束</th><th>输出尾</th></tr>${rows}</table>`));
-  } else {
-    tp.appendChild($(`<div class="hint">还没有任务。</div>`));
-  }
-  main.appendChild(tp);
-
-  startPoll(() => { if (current === id) renderBook(id); });
+  pollBooks(() => { if (location.hash === "#/b/" + id) renderBook(id); });
 }
 
-// ---------- 轮询：有任务在跑才刷新 ----------
-const hasInflight = (books) => books.some((b) => b.inflight);
-function startPoll(fn) {
-  stopPoll();
+// ---------- 轮询：只在有任务运行时刷新 ----------
+let pollTimer = null;
+function pollBooks(fn) {
+  if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
     const books = await api("/api/books");
-    if (hasInflight(books)) fn();
+    if (books.some((b) => b.inflight)) fn();
   }, 2000);
 }
-function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
-function openBook(id) { current = id; renderBook(id).catch(showErr); }
-function showErr(e) { document.getElementById("main").innerHTML = `<div class="panel err">加载失败：${esc(e.message)}</div>`; }
+// ---------- 路由 + 返回键守卫：书架上一级的返回留在书架，不退出 ----------
+function route() {
+  const m = location.hash.match(/^#\/b\/(.+)$/);
+  if (m) renderBook(decodeURIComponent(m[1])).catch(toastErr);
+  else {
+    renderShelf().catch(toastErr);
+    history.pushState({ guard: true }, "", location.href); // 困留：书架再按返回仍是书架
+  }
+}
+window.addEventListener("hashchange", route);
+window.addEventListener("popstate", () => {
+  if (location.hash === "" || location.hash === "#") history.pushState({ guard: true }, "", location.href);
+});
+document.getElementById("homeBtn").onclick = () => { location.hash = ""; };
+function toastErr(e) { toast(e.message ?? String(e)); }
 
-renderShelf().catch(showErr);
+// ---------- 提示条（只反馈动作结果，不放说明） ----------
+let toastTimer = null;
+function toast(msg) {
+  let t = document.getElementById("toast");
+  if (!t) { t = $(`<div id="toast" style="position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:7px 18px;border-radius:4px;font-size:13px;z-index:60"></div>`); document.body.appendChild(t); }
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.style.display = "none"), 2600);
+}
+
+// ---------- 能力配置（功能层级：OCR 云端/本地、LLM） ----------
+const CFG_FIELDS = [
+  ["c-ocrcloud-url", "ocr.cloud.url"], ["c-ocrcloud-key", "ocr.cloud.key"], ["c-ocrcloud-model", "ocr.cloud.model"],
+  ["c-ocrlocal-engine", "ocr.local.engine"],
+  ["c-llm-url", "llm.api.url"], ["c-llm-key", "llm.api.key"], ["c-llm-model", "llm.api.model"],
+];
+const cfgEl = document.getElementById("cfg");
+document.getElementById("cfgBtn").onclick = async () => {
+  const c = await api("/api/config");
+  for (const [fid, path] of CFG_FIELDS) {
+    const seg = path.split(".");
+    document.getElementById(fid).value = (c[seg[0]]?.[seg[1]]?.[seg[2]] ?? "");
+  }
+  cfgEl.style.display = "block";
+};
+document.getElementById("cfgClose").onclick = () => (cfgEl.style.display = "none");
+document.getElementById("cfgSave").onclick = async () => {
+  const c = await api("/api/config");
+  for (const [fid, path] of CFG_FIELDS) {
+    const seg = path.split(".");
+    c[seg[0]] ??= {}; c[seg[0]][seg[1]] ??= {};
+    c[seg[0]][seg[1]][seg[2]] = document.getElementById(fid).value.trim();
+  }
+  await api("/api/config", c);
+  toast("已保存");
+  cfgEl.style.display = "none";
+};
+
+route();
 </script>
 </body>
 </html>

@@ -84,6 +84,7 @@ export interface BookStage {
   exported: boolean;
   pageCount: number;
   blockStates: Record<string, number>;
+  blockTypes: Record<string, number>;
   blockCount: number;
 }
 
@@ -91,18 +92,37 @@ export function deriveStage(id: string): BookStage {
   const P = pathsFor(id);
   const stage: BookStage = {
     extracted: false, rendered: false, exported: false,
-    pageCount: 0, blockStates: {}, blockCount: 0,
+    pageCount: 0, blockStates: {}, blockTypes: {}, blockCount: 0,
   };
   if (existsSync(P.graph)) {
     const g = JSON.parse(readFileSync(P.graph, "utf-8"));
     stage.extracted = true;
     stage.pageCount = g.pages?.length ?? 0;
     stage.blockCount = g.blocks?.length ?? 0;
-    for (const b of g.blocks) stage.blockStates[b.state] = (stage.blockStates[b.state] ?? 0) + 1;
+    for (const b of g.blocks) {
+      stage.blockStates[b.state] = (stage.blockStates[b.state] ?? 0) + 1;
+      stage.blockTypes[b.type] = (stage.blockTypes[b.type] ?? 0) + 1;
+    }
   }
   if (existsSync(P.pagesDir)) stage.rendered = readdirSync(P.pagesDir).some((f) => f.endsWith(".png"));
   stage.exported = existsSync(P.workbench);
   return stage;
+}
+
+// ---------- 进度（意图：百分比诚实反映"离成书还差多少"） ----------
+// 口径：识别基建 15%（块图/页图/工作台各 5）+ 原文校对 45%（应校非附着块中已定占比）
+//      + 翻译 20% + 双语校对 10% + 机器检查与采纳 10%。
+// 未点亮的阶段恒 0 —— 不虚报。
+export function progress(id: string): { pct: number; proofDone: number; proofTotal: number } {
+  const st = deriveStage(id);
+  let pct = 0;
+  if (st.extracted) pct += 5;
+  if (st.rendered) pct += 5;
+  if (st.exported) pct += 5;
+  const proofTotal = Math.max(0, st.blockCount - (st.blockTypes.furniture ?? 0));
+  const proofDone = st.blockStates["原文已定"] ?? 0;
+  if (proofTotal > 0) pct += 45 * (proofDone / proofTotal);
+  return { pct: Math.round(pct * 10) / 10, proofDone, proofTotal };
 }
 
 // 行为名 → CLI 文件（服务层与 CLI 共用一份实现）
@@ -111,4 +131,9 @@ export const BEHAVIORS: Record<string, string> = {
   render: "src/renderpages.ts",
   export: "src/exportwb.ts",
   replay: "src/replay.ts",
+};
+
+// 用户语义的行为：一步"识别" = 抽取 + 页图 + 工作台，内部按序执行（用户不需要知道拆解）
+export const BEHAVIOR_STEPS: Record<string, string[]> = {
+  process: ["extract", "render", "export"],
 };

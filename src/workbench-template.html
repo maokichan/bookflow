@@ -5,131 +5,132 @@
 <title>bookflow 工作台</title>
 <style>
   :root {
-    --ink: #2a2a28; --paper: #faf9f6; --line: #d8d4cc; --dim: #8a857c;
-    --accent: #b4552d; --ok: #4a7c59; --hl: rgba(180, 85, 45, .18);
+    --ink: #2a2a28; --paper: #faf9f6; --desk: #e3dfd4; --line: #d8d4cc; --dim: #8a857c;
+    --accent: #b4552d; --ok: #4a7c59; --hl: rgba(180, 85, 45, .18); --hair: #e8e4da;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--paper); color: var(--ink);
-    font-family: "Noto Serif SC", "SimSun", serif; font-size: 15px; }
-  button { font: inherit; }
+  body { margin: 0; background: var(--desk); color: var(--ink);
+    font-family: "Times New Roman", "Noto Serif SC", "SimSun", serif; font-size: 15px; }
+  button { font: inherit; background: none; border: none; color: var(--ink); cursor: pointer; padding: 0; }
+  .ta { font-size: 13px; font-weight: 700; }
+  .ta:hover { color: var(--accent); }
 
-  #topbar { display: flex; align-items: center; gap: 14px; padding: 8px 16px;
-    border-bottom: 1px solid var(--line); background: #f3f1ec; position: sticky; top: 0; z-index: 10; }
-  #topbar h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; }
-  .tab { border: 1px solid var(--line); background: #fff; padding: 3px 12px; cursor: pointer; border-radius: 3px; }
-  .tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
-  #logstat { margin-left: auto; font-size: 13px; color: var(--dim); }
-  #logstat .warn { color: var(--accent); font-weight: 600; }
-  #exportBtn { border: 1px solid var(--accent); color: var(--accent); background: #fff;
-    padding: 3px 14px; border-radius: 3px; cursor: pointer; }
-  #exportBtn:hover { background: var(--accent); color: #fff; }
+  #topbar { position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 20;
+    display: flex; align-items: center; gap: 16px; padding: 0 16px;
+    background: var(--paper); border-bottom: 1px solid var(--line); }
+  #topbar h1 { font-size: 14px; margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #topbar .sp { flex: 1; }
+  #topbar .count { font-size: 12.5px; color: var(--dim); white-space: nowrap; }
 
-  #main { display: flex; height: calc(100vh - 42px); }
-  #imgpane { flex: 1 1 52%; border-right: 1px solid var(--line); overflow: auto;
-    background: #e9e6df; position: relative; }
-  .pagebox { position: relative; margin: 14px auto; width: fit-content; font-size: 0;
-    box-shadow: 0 1px 6px rgba(0,0,0,.18); background: #fff; }
+  /* 挂载线：左右两栏挂在线上，点线上的字收放 */
+  .railtab { position: fixed; top: 36px; z-index: 21; height: 26px; line-height: 26px;
+    font-size: 12.5px; color: var(--ink); opacity: .38; padding: 0 14px; background: var(--desk); }
+  .railtab:hover { opacity: .85; }
+  #tabL { left: 0; border-right: 1px solid var(--line); }
+  #tabR { right: 0; border-left: 1px solid var(--line); }
+
+  .rail { position: fixed; top: 62px; bottom: 0; width: 252px; z-index: 15;
+    background: var(--desk); overflow-y: auto; padding: 10px 12px 120px; }
+  body.noL #leftrail, body.noR #rightrail { display: none; }
+  body #center { position: fixed; top: 36px; bottom: 0; left: 0; right: 0; overflow-y: auto; }
+  body:not(.noL) #center { left: 252px; }
+  body:not(.noR) #center { right: 252px; }
+
+  #leftrail { left: 0; border-right: 1px solid var(--line); }
+  #rightrail { right: 0; border-left: 1px solid var(--line); }
+  .rail .rh { font-size: 11.5px; color: var(--dim); margin: 4px 0 8px; font-family: ui-monospace, Consolas, monospace; }
+  .ol-item { font-size: 13px; padding: 3px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ol-item:hover { background: var(--paper); }
+  .ol-item.lv2 { padding-left: 20px; }
+  .ol-item.lv3 { padding-left: 34px; }
+  .ol-item .opg { float: right; color: var(--dim); font-size: 11px; }
+  .ol-empty { font-size: 12.5px; color: var(--dim); }
+  .dn-item { font-size: 13px; line-height: 1.6; padding: 6px 6px; border-bottom: 1px solid var(--hair); color: #57534a; }
+  .dn-item .dmeta { font-size: 10.5px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
+  .dn-item .dtxt { max-height: 3.2em; overflow: hidden; }
+
+  .pagebox { position: relative; margin: 18px auto; width: fit-content; font-size: 0;
+    box-shadow: 0 1px 5px rgba(0,0,0,.22); background: #fff; }
   .pagebox img { display: block; user-select: none; }
   .bbox { position: absolute; border: 2px solid var(--accent); background: var(--hl);
     border-radius: 2px; pointer-events: none; display: none; }
   .imgfail { color: #a8322a; font: 13px sans-serif; padding: 12px; }
-  #pagenav { position: sticky; top: 8px; left: 8px; z-index: 5; }
-  #pagenav button { border: 1px solid var(--line); background: #fff; border-radius: 3px;
-    padding: 2px 10px; cursor: pointer; margin-right: 4px; }
 
-  #blockpane { flex: 1 1 48%; overflow: auto; padding: 10px 14px 40vh; }
-  #outline { border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; }
-  #outline .ol-head { font-size: 11.5px; color: var(--dim); margin: 4px 0 6px; font-family: ui-monospace, Consolas, monospace; }
-  #outline .ol-empty { font-size: 12.5px; color: var(--dim); padding: 2px 0 6px; }
-  #outline .ol-item { font-size: 13px; padding: 3px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #outline .ol-item:hover { background: #fff; }
-  #outline .ol-item.lv2 { padding-left: 20px; }
-  #outline .ol-item.lv3 { padding-left: 34px; }
-  #outline .ol-pg { float: right; color: var(--dim); font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
-  .blk { padding: 8px 10px; border-left: 3px solid transparent; border-bottom: 1px solid #eee9e0; cursor: pointer; }
-  .blk.active { background: #fff; border-left-color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-  .blk .meta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; margin-bottom: 3px; }
-  .blk .meta .tp { color: var(--accent); }
-  .blk .meta .st { color: var(--ok); }
-  .blk .txt { white-space: pre-wrap; line-height: 1.75; outline: none; }
-  .blk .txt[contenteditable="true"] { background: #fffbe8; box-shadow: 0 0 0 2px var(--accent); }
-  .blk[ data-type="furniture"] .txt { color: var(--dim); }
-  .blk[ data-type="annotation"] { background: #f6f2ea; }
-  .blk[ data-type="structure"] .txt { font-weight: 700; font-size: 16.5px; }
+  /* 当前裁决条目：底部居中，圆角容器，作为焦点存在 */
+  #curcard { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 30;
+    width: min(700px, calc(100vw - 80px)); background: var(--paper); border: 1px solid var(--ink);
+    border-radius: 10px; padding: 10px 16px 8px; }
+  #curcard.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--hl); }
+  #curcard .cmeta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace;
+    display: flex; gap: 10px; }
+  #curcard .cmeta .sp { flex: 1; }
+  #curcard .ctxt { font-size: 15px; line-height: 1.75; white-space: pre-wrap; outline: none;
+    max-height: 9.5em; overflow-y: auto; margin: 4px 0 6px; }
+  #curcard .ctxt[contenteditable="true"] { background: #fffbe8; }
+  #curcard .cacts { display: flex; gap: 14px; border-top: 1px solid var(--hair); padding-top: 5px; }
+  #curcard .cacts .ta { color: #57534a; }
+  #curcard .cacts .ta:hover { color: var(--accent); }
+  #curcard .cacts .sp { flex: 1; }
 
-  #hint { position: fixed; bottom: 0; left: 0; right: 0; background: #2a2a28; color: #cfc9bf;
-    font-size: 12px; padding: 5px 14px; font-family: ui-monospace, Consolas, monospace; z-index: 20; }
-  #hint b { color: #fff; }
-
-  #modebar { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 30;
+  #modebar { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 40;
     background: var(--ink); color: #fff; padding: 6px 18px; border-radius: 4px; display: none; font-size: 14px; }
-  #toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); z-index: 40;
-    background: var(--ok); color: #fff; padding: 6px 18px; border-radius: 4px; display: none; font-size: 14px; }
+  #toast { position: fixed; bottom: 18px; right: 18px; z-index: 50; display: none;
+    background: var(--ok); color: #fff; padding: 6px 16px; border-radius: 4px; font-size: 13px; }
 </style>
 </head>
 <body>
 <div id="topbar">
+  <button class="ta" onclick="window.close();location.href='/';">‹ 书架</button>
   <h1 id="title"></h1>
-  <span id="tabs"></span>
-  <span id="logstat"></span>
-  <button id="exportBtn">导出裁决日志 (S)</button>
+  <span class="sp"></span>
+  <span class="count" id="counts"></span>
+  <button class="ta" id="exportBtn">导出日志</button>
 </div>
-<div id="main">
-  <div id="imgpane">
-    <div id="pagenav">
-      <button id="pgPrev">&lt; 上一页 (,)</button>
-      <button id="pgNext">下一页 (.) &gt;</button>
-      <button id="zoomBtn">缩放 (I)</button>
-    </div>
-    <div id="pages"></div>
-  </div>
-  <div id="blockpane">
-    <div id="outline"></div>
-    <div id="blocklist"></div>
+<button class="railtab" id="tabL">结构</button>
+<button class="railtab" id="tabR">已定</button>
+<div class="rail" id="leftrail"></div>
+<div class="rail" id="rightrail"></div>
+<div id="center"><div id="pages"></div></div>
+<div id="curcard">
+  <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="ccount"></span></div>
+  <div class="ctxt" id="ctext"></div>
+  <div class="cacts">
+    <button class="ta" data-k="g">盖章 G</button>
+    <button class="ta" data-k="e">改文 E</button>
+    <button class="ta" data-k="h">结构 H</button>
+    <button class="ta" data-k="t">改型 T</button>
+    <span class="sp"></span>
+    <button class="ta" data-k="k">↑ K</button>
+    <button class="ta" data-k="j">↓ J</button>
   </div>
 </div>
 <div id="modebar"></div>
 <div id="toast"></div>
-<div id="hint">
-  <b>J/K</b> 上下块 · <b>E</b> 改文 · <b>Enter</b> 提交 / <b>Esc</b> 取消 ·
-  <b>G</b> 盖章(原文已定) · <b>Y</b> 退回 · <b>T</b> 改型 · <b>H</b> 标结构 · <b>I</b> 缩放 ·
-  <b>, .</b> 翻页 · <b>S</b> 导出日志 · <b>Tab</b> 切箱 · <b>?</b> 帮助
-</div>
 <script>
 "use strict";
 /*__DATA__*/null;
 // ===== 状态 =====
-var BINS = [
-  { key: "review",  label: "待校",   match: function (b) { return b.state === "typed" && b.type !== "furniture"; } },
-  { key: "locked",  label: "已定",   match: function (b) { return b.state === "原文已定"; } },
-  { key: "untyped", label: "未分型", match: function (b) { return b.type === "untyped"; } },
-  { key: "all",     label: "全部",   match: function () { return true; } },
-];
 var TYPES = ["flow", "structure", "furniture", "annotation", "asset", "untyped"];
-var state = { bin: 0, idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, levelMode: false, curPage: 0 };
+var state = { idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, levelMode: false };
 try {
   var mirrored = JSON.parse(localStorage.getItem(logKey()) || "[]");
   if (mirrored.length) { state.log = mirrored; toast("检测到 " + mirrored.length + " 条未落盘裁决，请先导出"); }
 } catch (e) {}
 function logKey() { return "bookflow:log:" + DATA.title; }
 
-// ===== 派生 =====
-function binBlocks() {
+// 待校队列 = 非附着块中仍为 typed 的，按书序；右侧栏 = 已定，逐渐成型的书
+function queue() {
   var arr = [];
-  for (var i = 0; i < DATA.blocks.length; i++) if (BINS[state.bin].match(DATA.blocks[i])) arr.push(DATA.blocks[i]);
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var b = DATA.blocks[i];
+    if (b.state === "typed" && b.type !== "furniture") arr.push(b);
+  }
   return arr;
 }
-function counts() {
-  var c = [];
-  for (var i = 0; i < BINS.length; i++) c.push(binBlocksOf(i).length);
-  return c;
+function doneBlocks() {
+  return DATA.blocks.filter(function (b) { return b.state === "原文已定"; });
 }
-function binBlocksOf(i) {
-  var arr = [];
-  for (var j = 0; j < DATA.blocks.length; j++) if (BINS[i].match(DATA.blocks[j])) arr.push(DATA.blocks[j]);
-  return arr;
-}
-function cur() { return binBlocks()[state.idx]; }
+function cur() { var q = queue(); return q[state.idx] || null; }
 function pageSrc(p) { return PAGES_BASE + "p" + String(p).padStart(3, "0") + ".png"; }
 
 // ===== 动作 =====
@@ -137,7 +138,7 @@ function push(action, block, payload) {
   state.log.push({ ts: new Date().toISOString(), block: block.id, action: action, payload: payload });
   localStorage.setItem(logKey(), JSON.stringify(state.log));
   applyToBlock(block, action, payload);
-  renderLogStat();
+  renderChrome();
   if (state.log.length >= 15) { toast("已满 15 条，自动导出"); exportLog(); }
 }
 function applyToBlock(b, action, payload) {
@@ -163,50 +164,136 @@ function replayMirror() {
 }
 
 // ===== 渲染 =====
-function renderAll() { renderTabs(); renderOutline(); renderList(true); renderLogStat(); }
-function renderTabs() {
-  var c = counts(), html = "";
-  for (var i = 0; i < BINS.length; i++)
-    html += '<button class="tab' + (i === state.bin ? " on" : "") + '" data-bin="' + i + '">'
-      + BINS[i].label + " " + c[i] + "</button> ";
-  document.getElementById("tabs").innerHTML = html;
-}
-function renderLogStat() {
-  var n = state.log.length;
-  document.getElementById("logstat").innerHTML = n
-    ? '待落盘裁决 <span class="warn">' + n + "</span> 条"
-    : "日志已落盘";
-}
-function renderList(scroll) {
-  var arr = binBlocks();
-  if (!arr.length) { document.getElementById("blocklist").innerHTML = "<p style='color:#8a857c'>本箱为空。</p>"; clearBbox(); return; }
-  if (state.idx >= arr.length) state.idx = arr.length - 1;
-  if (state.idx < 0) state.idx = 0;
-  var lo = Math.max(0, state.idx - 80), hi = Math.min(arr.length, state.idx + 80);
-  var html = "";
-  for (var i = lo; i < hi; i++) {
-    var b = arr[i];
-    html += "<div class='blk" + (i === state.idx ? " active" : "") + "' data-i='" + i + "' data-type='" + b.type + "'>"
-      + "<div class='meta'>" + b.id + " · <span class='tp'>" + b.type + (b.type === "structure" && b.level ? " L" + b.level : "") + "</span> · <span class='st'>" + b.state + "</span></div>"
-      + "<div class='txt'" + (i === state.idx && state.editing ? " contenteditable='true' id='editor'" : "") + ">"
-      + esc(b.text) + "</div></div>";
-  }
-  var el = document.getElementById("blocklist");
-  el.innerHTML = html;
-  var act = el.querySelector(".active");
-  if (act && scroll) act.scrollIntoView({ block: "nearest" });
-  if (act && state.editing) { var ed = el.querySelector("#editor"); if (ed) { ed.focus(); placeCaretEnd(ed); } }
-  updateSelection();
-  centerSelection();
+function renderAll() { renderChrome(); renderOutline(); renderCurrent(); renderDone(); }
+function renderChrome() {
+  var q = queue(), d = doneBlocks();
+  document.getElementById("counts").textContent = "待校 " + q.length + " · 已定 " + d.length;
+  document.getElementById("tabR").textContent = "已定 · " + d.length;
+  document.getElementById("tabL").textContent = "结构 · " + DATA.blocks.filter(function (b) { return b.type === "structure" && b.level; }).length;
 }
 function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function placeCaretEnd(el) {
   var r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
   var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
 }
+function renderCurrent() {
+  var q = queue();
+  if (state.idx >= q.length) state.idx = Math.max(0, q.length - 1);
+  var b = q[state.idx];
+  var card = document.getElementById("curcard");
+  if (!b) {
+    document.getElementById("cid").textContent = "—";
+    document.getElementById("ctype").textContent = "本队列已清";
+    document.getElementById("ccount").textContent = "";
+    var ct = document.getElementById("ctext");
+    ct.textContent = ""; ct.removeAttribute("contenteditable");
+    card.classList.remove("editing");
+  } else {
+    document.getElementById("cid").textContent = b.id;
+    document.getElementById("ctype").textContent = b.type + (b.type === "structure" && b.level ? " L" + b.level : "") + " · " + b.state;
+    document.getElementById("ccount").textContent = (state.idx + 1) + " / " + q.length;
+    var ct2 = document.getElementById("ctext");
+    ct2.textContent = b.text;
+    if (state.editing) { ct2.setAttribute("contenteditable", "true"); card.classList.add("editing"); placeCaretEnd(ct2); }
+    else { ct2.removeAttribute("contenteditable"); card.classList.remove("editing"); }
+  }
+  updateSelection();
+  centerSelection();
+}
+function renderDone() {
+  var d = doneBlocks();
+  var host = document.getElementById("rightrail");
+  if (!d.length) { host.innerHTML = "<div class='rh'>已定</div><div class='ol-empty'>尚无已定块</div>"; return; }
+  var html = "";
+  for (var i = 0; i < d.length; i++) {
+    html += "<div class='dn-item'><div class='dmeta'>" + d[i].id + "</div><div class='dtxt'>" + esc(d[i].text) + "</div></div>";
+  }
+  host.innerHTML = "<div class='rh'>已定 · 成型中的书</div>" + html;
+}
 
-// ===== 页图：连续滚动，全部页一次铺开，选中块的高亮框始终居中 =====
-var PAGES = []; // PAGES[p] = {box, img, bbox}
+// ===== 大纲（左栏：结构树即导航） =====
+function renderOutline() {
+  var host = document.getElementById("leftrail");
+  var items = [];
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var b = DATA.blocks[i];
+    if (b.type === "structure" && b.level) items.push(b);
+  }
+  items.sort(function (x, y) { return x.page - y.page || x.bbox.y0 - y.bbox.y0; });
+  if (!items.length) { host.innerHTML = "<div class='rh'>结构</div><div class='ol-empty'>空 —— 选中标题块按 H 标层级</div>"; return; }
+  var html = "";
+  for (var j = 0; j < items.length; j++) {
+    var t = items[j];
+    html += "<div class='ol-item lv" + t.level + "' data-id='" + t.id + "'>"
+      + esc(t.text.slice(0, 22)) + "<span class='opg'>" + t.page + "</span></div>";
+  }
+  host.innerHTML = "<div class='rh'>结构</div>" + html;
+}
+
+// ===== 动作实现 =====
+function doGate(back) {
+  var b = cur(); if (!b) return;
+  var target = back ? "typed" : "原文已定";
+  if (!back && b.state !== "typed") { toast("仅 待校 块可盖章"); return; }
+  if (back && b.state !== "原文已定") { toast("仅 已定 块可退回"); return; }
+  push("gate", b, { state: target });
+  toast(back ? "已退回" : "已盖章 " + b.id);
+  renderAll();
+}
+function doReclassify(n) {
+  var b = cur(); if (!b) return;
+  var t = TYPES[n - 1]; if (!t) return;
+  push("reclassify", b, { type: t });
+  toast(b.id + " → " + t);
+  state.typeMode = false; modebar("");
+  renderAll();
+  if (cur() === b) move(1); // 裁决完即下一个
+}
+function doStructure(n) {
+  var b = cur(); if (!b) return;
+  push("structure", b, { level: n });
+  toast(b.id + " → 结构 L" + n);
+  state.levelMode = false; modebar("");
+  renderAll();
+  if (cur() === b) move(1); // 裁决完即下一个
+}
+function commitEdit() {
+  var ed = document.getElementById("ctext");
+  if (!ed) { state.editing = false; return; }
+  var b = cur();
+  var newText = ed.innerText.replace(/\n\n+/g, "\n").trimEnd();
+  if (b && newText !== b.text) { push("edit", b, { text: newText }); toast("已改文 " + b.id); }
+  state.editing = false;
+  renderAll();
+  if (cur() === b) move(1); // 裁决完即下一个
+}
+
+// ===== 导航 =====
+function move(d) {
+  if (state.editing) return;
+  var n = queue().length;
+  if (!n) { renderCurrent(); return; }
+  state.idx = Math.min(n - 1, Math.max(0, state.idx + d));
+  renderCurrent();
+}
+
+// ===== 导出 =====
+function exportLog() {
+  if (!state.log.length) { toast("日志为空"); return; }
+  var text = state.log.map(function (a) { return JSON.stringify(a); }).join("\n") + "\n";
+  var blob = new Blob([text], { type: "application/x-ndjson" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "adjudication-" + DATA.title + "-" + Date.now() + ".jsonl";
+  document.body.appendChild(a); a.click(); a.remove();
+  state.log = [];
+  localStorage.setItem(logKey(), "[]");
+  renderChrome();
+  toast("已下载 —— 放入该书 inbox/ 后在书架点回放");
+}
+
+// ===== 页图：连续滚动，选中块的高亮框始终居中 =====
+var PAGES = [];
 function buildPages() {
   var host = document.getElementById("pages");
   var html = "";
@@ -221,7 +308,7 @@ function buildPages() {
     img.onerror = (function (box) { return function () {
       if (!box.querySelector(".imgfail")) {
         var d = document.createElement("div"); d.className = "imgfail";
-        d.textContent = "页图加载失败 —— 点书架里的「渲染页图」重新生成";
+        d.textContent = "页图缺失 —— 回书架点「识别」";
         box.appendChild(d);
       }
     }; })(boxes[i]);
@@ -231,8 +318,8 @@ function buildPages() {
   }
 }
 function pageWidth(pg) {
-  var nat = pg.img.naturalWidth || 748; // 未加载完成时先按 scale2 常见宽度占位
-  return state.zoomFit ? Math.max(320, Math.min(imgpane().clientWidth - 32, nat)) : nat;
+  var nat = pg.img.naturalWidth || 748;
+  return state.zoomFit ? Math.max(320, Math.min(center().clientWidth - 48, nat)) : nat;
 }
 function applyWidth(pg) {
   var w = pageWidth(pg);
@@ -258,94 +345,7 @@ function centerSelection() {
   if (b && PAGES[b.page] && PAGES[b.page].bbox.style.display === "block")
     PAGES[b.page].bbox.scrollIntoView({ block: "center" });
 }
-function clearBbox() { updateSelection(); }
-function imgpane() { return document.getElementById("imgpane"); }
-
-// ===== 动作实现 =====
-function doGate(back) {
-  var b = cur(); if (!b) return;
-  var target = back ? "typed" : "原文已定";
-  if (!back && b.state !== "typed") { toast("仅 待校 块可盖章"); return; }
-  if (back && b.state !== "原文已定") { toast("仅 已定 块可退回"); return; }
-  push("gate", b, { state: target });
-  toast(back ? "已退回" : "已盖章 " + b.id);
-  if (!back) { state.bin = 0; state.idx = state.idx; renderAll(); move(0); } else renderAll();
-}
-function doReclassify(n) {
-  var b = cur(); if (!b) return;
-  var t = TYPES[n - 1]; if (!t) return;
-  push("reclassify", b, { type: t });
-  toast(b.id + " → " + t);
-  state.typeMode = false; modebar("");
-  renderAll();
-}
-function commitEdit() {
-  var ed = document.getElementById("editor");
-  if (!ed) { state.editing = false; return; }
-  var b = cur();
-  var newText = ed.innerText.replace(/\n\n+/g, "\n").trimEnd();
-  if (newText !== b.text) { push("edit", b, { text: newText }); toast("已改文 " + b.id); }
-  state.editing = false;
-  renderAll();
-}
-
-// ===== 手动结构对齐：把标题块标进层级树，大纲即导航 =====
-function doStructure(n) {
-  var b = cur(); if (!b) return;
-  push("structure", b, { level: n });
-  toast(b.id + " → 结构 L" + n);
-  state.levelMode = false; modebar("");
-  renderAll();
-}
-function renderOutline() {
-  var host = document.getElementById("outline");
-  var items = [];
-  for (var i = 0; i < DATA.blocks.length; i++) {
-    var b = DATA.blocks[i];
-    if (b.type === "structure" && b.level) items.push(b);
-  }
-  items.sort(function (x, y) { return x.page - y.page || x.bbox.y0 - y.bbox.y0; });
-  if (!items.length) {
-    host.innerHTML = "<div class='ol-empty'>结构树为空 —— 选中标题块按 <b>H</b> 标层级（1 章 / 2 节 / 3 目）</div>";
-    return;
-  }
-  var html = "";
-  for (var j = 0; j < items.length; j++) {
-    var t = items[j];
-    html += "<div class='ol-item lv" + t.level + "' data-id='" + t.id + "' title='跳到该块'>"
-      + esc(t.text.slice(0, 24)) + "<span class='ol-pg'>" + t.page + "</span></div>";
-  }
-  host.innerHTML = "<div class='ol-head'>结构 · " + items.length + "</div>" + html;
-}
-
-// ===== 导航 =====
-function move(d) {
-  if (state.editing) return;
-  var n = binBlocks().length;
-  if (!n) return;
-  state.idx = Math.min(n - 1, Math.max(0, state.idx + d));
-  renderList(true);
-}
-function setBin(i) {
-  if (state.editing) return;
-  state.bin = i; state.idx = 0;
-  renderAll();
-}
-
-// ===== 导出 =====
-function exportLog() {
-  if (!state.log.length) { toast("日志为空"); return; }
-  var text = state.log.map(function (a) { return JSON.stringify(a); }).join("\n") + "\n";
-  var blob = new Blob([text], { type: "application/x-ndjson" });
-  var a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "adjudication-" + DATA.title + "-" + Date.now() + ".jsonl";
-  document.body.appendChild(a); a.click(); a.remove();
-  state.log = [];
-  localStorage.setItem(logKey(), "[]");
-  renderLogStat();
-  toast("已下载 —— 放入 bookflow/inbox/ 后运行 npm run replay");
-}
+function center() { return document.getElementById("center"); }
 
 // ===== UI 反馈 =====
 var toastTimer = null;
@@ -361,28 +361,36 @@ function modebar(msg) {
 }
 
 // ===== 事件 =====
-document.getElementById("tabs").addEventListener("click", function (e) {
-  var b = e.target.getAttribute("data-bin");
-  if (b !== null) setBin(Number(b));
-});
 document.getElementById("exportBtn").addEventListener("click", exportLog);
-document.getElementById("pgPrev").addEventListener("click", function () { nudgePage(-1); });
-document.getElementById("pgNext").addEventListener("click", function () { nudgePage(1); });
-document.getElementById("zoomBtn").addEventListener("click", toggleZoom);
-document.getElementById("blocklist").addEventListener("click", function (e) {
-  var blk = e.target.closest(".blk");
-  if (!blk || state.editing) return;
-  state.idx = Number(blk.getAttribute("data-i"));
-  renderList(false);
-});
-document.getElementById("outline").addEventListener("click", function (e) {
+document.getElementById("tabL").addEventListener("click", function () { document.body.classList.toggle("noL"); });
+document.getElementById("tabR").addEventListener("click", function () { document.body.classList.toggle("noR"); });
+document.getElementById("leftrail").addEventListener("click", function (e) {
   var it = e.target.closest(".ol-item");
   if (!it || state.editing) return;
   var id = it.getAttribute("data-id");
-  var idx = binBlocksOf(3).findIndex(function (b) { return b.id === id; }); // 全部箱
-  if (idx < 0) return;
-  state.bin = 3; state.idx = idx;
-  renderAll();
+  var q = queue();
+  var idx = q.findIndex(function (b) { return b.id === id; });
+  if (idx >= 0) { state.idx = idx; renderCurrent(); return; }
+  var blk = DATA.blocks.find(function (b) { return b.id === id; });
+  if (blk) { toast(blk.id + " · " + blk.state); }
+});
+document.getElementById("rightrail").addEventListener("click", function (e) {
+  var it = e.target.closest(".dn-item");
+  if (!it || state.editing) return;
+  var idx = [...document.querySelectorAll("#rightrail .dn-item")].indexOf(it);
+  var b = doneBlocks()[idx];
+  if (b && PAGES[b.page]) PAGES[b.page].img.scrollIntoView({ block: "center" });
+});
+document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var k = btn.getAttribute("data-k");
+    if (k === "g") doGate(false);
+    else if (k === "e") { if (cur()) { state.editing = true; renderCurrent(); } }
+    else if (k === "h") { if (cur()) { state.levelMode = true; modebar("结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消）"); } }
+    else if (k === "t") { state.typeMode = true; modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）"); }
+    else if (k === "j") move(1);
+    else if (k === "k") move(-1);
+  });
 });
 window.addEventListener("resize", function () {
   for (var i = 1; i < PAGES.length; i++) applyWidth(PAGES[i]);
@@ -395,7 +403,7 @@ function nudgePage(d) {
 }
 function toggleZoom() {
   state.zoomFit = !state.zoomFit;
-  toast(state.zoomFit ? "适宽" : "原始尺寸（滚轮平移）");
+  toast(state.zoomFit ? "适宽" : "原始尺寸");
   for (var i = 1; i < PAGES.length; i++) applyWidth(PAGES[i]);
   updateSelection();
 }
@@ -421,8 +429,9 @@ document.addEventListener("keydown", function (e) {
     case "j": case "ArrowDown": e.preventDefault(); move(1); break;
     case "k": case "ArrowUp": e.preventDefault(); move(-1); break;
     case "e": {
-      var b = cur(); if (!b) break;
-      state.editing = true; renderList(false); break;
+      e.preventDefault(); // 进编辑态的同一个键不再漏进编辑器
+      var b0 = cur(); if (!b0) break;
+      state.editing = true; renderCurrent(); break;
     }
     case "g": e.preventDefault(); doGate(false); break;
     case "y": e.preventDefault(); doGate(true); break;
@@ -434,19 +443,18 @@ document.addEventListener("keydown", function (e) {
     case "h": {
       if (!cur()) break;
       state.levelMode = true;
-      modebar("结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消；块将标记为 structure 并进大纲）");
+      modebar("结构层级 → 1 章 · 2 节 · 3 目 （Esc 取消）");
       break;
     }
     case "i": toggleZoom(); break;
     case ",": nudgePage(-1); break;
     case ".": nudgePage(1); break;
     case "s": case "S": e.preventDefault(); exportLog(); break;
-    case "Tab": e.preventDefault(); setBin((state.bin + 1) % BINS.length); break;
   }
 });
 
 // ===== 启动 =====
-document.getElementById("title").textContent = DATA.title + " —— 人工校对 #1（对照页图）";
+document.getElementById("title").textContent = DATA.title + " —— 原文校对";
 replayMirror();
 buildPages();
 renderAll();
