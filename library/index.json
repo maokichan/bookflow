@@ -1,0 +1,15 @@
+{
+  "books": [
+    {
+      "id": "pourquoi",
+      "title": "为何一切尚未消失",
+      "createdAt": "2026-10-05T07:14:55.075Z",
+      "origin": "D:/DATABASE/图书馆（鲍德里亚，南京大学出版社 2017）"
+    },
+    {
+      "id": "test-book",
+      "title": "测试书",
+      "createdAt": "2026-10-05T11:11:45.988Z"
+    }
+  ]
+}

@@ -1,16 +1,18 @@
 // S0+S1（MVP 合并跑）：文本层 PDF → 行 → 分型 → 段落重组 → 块图。
 // 分型启发式移植自 kookit getTextFromPDFPage（字号众数定正文、y 间距切段），
 // 并补：页眉页脚跨页重复聚类（页面附着块）、大字号短行（结构块）。
-// 输入默认 data/source/test-book.pdf，可传 argv[2]。
+// 科目由注册表提供（书架导入时登记源与书名），工具按 --book 寻址。
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
 import path from "node:path";
-import { PATHS, ROOT, type Block, type BlockGraph, type BlockType } from "./model.ts";
+import { ROOT, type Block, type BlockGraph, type BlockType } from "./model.ts";
+import { argBook, getBook, pathsFor } from "./library.ts";
 
-const PDF_PATH = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : path.join(ROOT, "data", "source", "test-book.pdf");
-const TITLE = process.argv[3] ?? "测试书";
+// 科目由注册表提供（书架导入时登记源与书名），工具只按书号干活
+const BOOK = argBook();
+const meta = getBook(BOOK);
+const PDF_PATH = pathsFor(BOOK).source;
+const TITLE = meta.title;
 
 // ---------- pdfjs Node 全局 ----------
 import { DOMMatrix, Path2D, ImageData } from "@napi-rs/canvas";
@@ -324,12 +326,13 @@ const graph: BlockGraph = {
   blocks,
 };
 
-mkdirSync(path.dirname(PATHS.graph), { recursive: true });
-existsSync(PATHS.graph); // no-op：保持 import 使用
-const { writeFileSync } = await import("node:fs");
-writeFileSync(PATHS.graph, JSON.stringify(graph, null, 2), "utf-8");
+const P = pathsFor(BOOK);
+mkdirSync(path.dirname(P.graph), { recursive: true });
+const tmp = P.graph + ".tmp"; // 原子写：块图里沉淀着人的裁决，坏写不落盘
+writeFileSync(tmp, JSON.stringify(graph, null, 2), "utf-8");
+renameSync(tmp, P.graph);
 
 const byType = blocks.reduce<Record<string, number>>((m, b) => ((m[b.type] = (m[b.type] ?? 0) + 1), m), {});
-console.log(`块图写入 ${PATHS.graph}`);
+console.log(`块图写入 ${P.graph}`);
 console.log(`共 ${blocks.length} 块：`, byType);
 console.log(`S2 清洗：${cleanCount} 块、删 ${cleanChars} 字符`);

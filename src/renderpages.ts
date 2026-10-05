@@ -4,7 +4,8 @@ import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas, DOMMatrix, Path2D, ImageData } from "@napi-rs/canvas";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { PATHS, ROOT } from "./model.ts";
+import { ROOT } from "./model.ts";
+import { argBook, getBook, pathsFor } from "./library.ts";
 
 (globals() as any).DOMMatrix ??= DOMMatrix;
 (globals() as any).Path2D ??= Path2D;
@@ -37,10 +38,9 @@ class NapiCanvasFactory {
   }
 }
 
-const PDF_PATH = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : path.join(ROOT, "data", "source", "test-book.pdf");
-const SCALE = Number(process.argv[3] ?? 2); // 2× ≈ 144 DPI，屏幕对照够用
+const BOOK = argBook();
+const PDF_PATH = pathsFor(BOOK).source; // 科目源在注册表里，已随导入复制为 source.pdf
+const SCALE = Number(process.argv[2] ?? 2); // 2× ≈ 144 DPI，屏幕对照够用
 
 const buf = readFileSync(PDF_PATH);
 const doc = await pdfjsLib.getDocument({
@@ -52,7 +52,8 @@ const doc = await pdfjsLib.getDocument({
   standardFontDataUrl: path.join(ROOT, "node_modules", "pdfjs-dist", "standard_fonts") + path.sep,
 }).promise;
 
-mkdirSync(PATHS.pagesDir, { recursive: true });
+const P = pathsFor(BOOK);
+mkdirSync(P.pagesDir, { recursive: true });
 for (let p = 1; p <= doc.numPages; p++) {
   const page = await doc.getPage(p);
   const vp = page.getViewport({ scale: SCALE });
@@ -61,9 +62,9 @@ for (let p = 1; p <= doc.numPages; p++) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvasContext: ctx as any, viewport: vp, background: "#ffffff" } as any).promise;
-  const out = path.join(PATHS.pagesDir, `p${String(p).padStart(3, "0")}.png`);
+  const out = path.join(P.pagesDir, `p${String(p).padStart(3, "0")}.png`);
   const png = canvas.encodeSync("png");
   writeFileSync(out, png);
   console.log(`p${p} → ${out} (${(png.length / 1024).toFixed(0)} KB)`);
 }
-console.log(`共 ${doc.numPages} 页 → ${PATHS.pagesDir}`);
+console.log(`共 ${doc.numPages} 页 → ${P.pagesDir}`);

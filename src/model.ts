@@ -1,6 +1,6 @@
 // 块图数据模型 —— 全流程单一事实源。
 // 类型与状态命名对齐《书稿流水线架构.md》§0/§1；只允许可擦除 TS（Node 原生 type stripping）。
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,25 +64,21 @@ export interface BlockGraph {
 }
 
 // ---------- IO ----------
-export const PATHS = {
-  graph: path.join(ROOT, "data", "blockgraph.json"),
-  pagesDir: path.join(ROOT, "data", "pages"),
-  workbenchDir: path.join(ROOT, "workbench"),
-  inbox: path.join(ROOT, "inbox"),
-  processed: path.join(ROOT, "inbox", "processed"),
-};
-
-export function loadGraph(): BlockGraph {
-  if (!existsSync(PATHS.graph)) {
-    console.error(`未找到 ${PATHS.graph} —— 先运行 npm run extract`);
+// 路径按书寻址（每书一目录，见 library.ts）；model 不依赖注册表，只认块图路径。
+export function loadGraph(graphPath: string): BlockGraph {
+  if (!existsSync(graphPath)) {
+    console.error(`未找到 ${graphPath} —— 先对该书运行抽取`);
     process.exit(1);
   }
-  return JSON.parse(readFileSync(PATHS.graph, "utf-8"));
+  return JSON.parse(readFileSync(graphPath, "utf-8"));
 }
 
-export function saveGraph(g: BlockGraph): void {
+// 原子写：写临时文件后 rename，坏写不落盘（裁决数据比代码贵）
+export function saveGraph(graphPath: string, g: BlockGraph): void {
   g.version += 1;
-  writeFileSync(PATHS.graph, JSON.stringify(g, null, 2), "utf-8");
+  const tmp = graphPath + ".tmp";
+  writeFileSync(tmp, JSON.stringify(g, null, 2), "utf-8");
+  renameSync(tmp, graphPath);
 }
 
 export function findBlock(g: BlockGraph, id: string): Block | undefined {

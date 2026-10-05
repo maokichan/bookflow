@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 用 Typst 编译受控测试书 → data/source/test-book.pdf
+// 用 Typst 编译受控测试书 → library/test-book/source.pdf（测试书也是注册表里的一本书）
 // Typst 二进制优先复用 book/tools/typst.exe（便携、即删即卸），其次 PATH。
 import { spawnSync } from "node:child_process";
 import { mkdirSync, existsSync } from "node:fs";
@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_DIR = path.join(ROOT, "data", "source");
-const OUT_PDF = path.join(OUT_DIR, "test-book.pdf");
+const OUT_DIR = path.join(ROOT, "library", "test-book");
+const OUT_PDF = path.join(OUT_DIR, "source.pdf");
 const CANDIDATES = [
   path.join(ROOT, "..", "book", "tools", "typst.exe"),
   "typst",

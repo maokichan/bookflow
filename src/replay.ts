@@ -1,24 +1,26 @@
 // 裁决日志回放器：块图的唯一写者。
-// 消费 inbox/*.jsonl（append-only 人工动作），逐条校验前置状态后应用到块图，
+// 消费该书 inbox/*.jsonl（append-only 人工动作），逐条校验前置状态后应用到块图，
 // 已消费日志移入 inbox/processed/。违反前置条件的动作被拒并计入报告，不静默。
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, renameSync } from "node:fs";
+import { readFileSync, readdirSync, mkdirSync, renameSync } from "node:fs";
 import path from "node:path";
-import { PATHS, loadGraph, saveGraph, findBlock, GATE_TRANSITIONS, type BlockState } from "./model.ts";
+import { loadGraph, saveGraph, findBlock, GATE_TRANSITIONS, type BlockState } from "./model.ts";
+import { argBook, pathsFor } from "./library.ts";
 
-mkdirSync(PATHS.processed, { recursive: true });
-const logs = readdirSync(PATHS.inbox).filter((f) => f.endsWith(".jsonl")).sort();
+const P = pathsFor(argBook());
+mkdirSync(P.processed, { recursive: true });
+const logs = readdirSync(P.inbox).filter((f) => f.endsWith(".jsonl")).sort();
 if (!logs.length) {
   console.log("inbox/ 为空 —— 没有待回放的裁决日志");
   process.exit(0);
 }
 
-const g = loadGraph();
+const g = loadGraph(P.graph);
 const VALID_TYPES = new Set(["flow", "structure", "furniture", "annotation", "asset", "untyped"]);
 const report = { applied: 0, rejected: [] as string[] };
 const appliedBy: Record<string, number> = {};
 
 for (const f of logs) {
-  const full = path.join(PATHS.inbox, f);
+  const full = path.join(P.inbox, f);
   const lines = readFileSync(full, "utf-8").split("\n").filter((l) => l.trim());
   for (let i = 0; i < lines.length; i++) {
     const where = `${f}#${i + 1}`;
@@ -51,13 +53,13 @@ for (const f of logs) {
     appliedBy[a.action] = (appliedBy[a.action] ?? 0) + 1;
     report.applied++;
   }
-  renameSync(full, path.join(PATHS.processed, f));
+  renameSync(full, path.join(P.processed, f));
 }
 
-saveGraph(g);
+saveGraph(P.graph, g);
 console.log(`应用 ${report.applied} 条：`, appliedBy);
 if (report.rejected.length) {
   console.log(`拒绝 ${report.rejected.length} 条：`);
   for (const r of report.rejected) console.log("  ✗", r);
 }
-console.log(`块图 → v${g.version}（${PATHS.graph}）`);
+console.log(`块图 → v${g.version}（${P.graph}）`);

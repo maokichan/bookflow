@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>bookflow 书架</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Source Han Serif SC", "Noto Serif SC", serif; background: #f7f4ee; color: #2d2a24; }
+  header { display: flex; align-items: baseline; gap: 16px; padding: 14px 22px; background: #fff; border-bottom: 1px solid #e0d9cc; }
+  header h1 { font-size: 19px; margin: 0; }
+  header .sub { font-size: 12px; color: #8a8374; }
+  main { max-width: 1080px; margin: 0 auto; padding: 22px; }
+  .panel { background: #fff; border: 1px solid #e0d9cc; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; color: #6b6455; font-weight: 600; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  input[type=text] { flex: 1; min-width: 200px; padding: 7px 10px; border: 1px solid #cfc7b6; border-radius: 5px; font: inherit; background: #fdfcf9; }
+  button { padding: 7px 14px; border: 1px solid #b8ad97; background: #f0ebe0; color: #2d2a24; border-radius: 5px; font: inherit; cursor: pointer; }
+  button:hover { background: #e6dfcf; }
+  button.primary { background: #4a4237; border-color: #4a4237; color: #f7f4ee; }
+  button:disabled { opacity: .45; cursor: default; }
+  .book { cursor: pointer; }
+  .book:hover { border-color: #b8ad97; }
+  .book .t { font-size: 16px; font-weight: 600; }
+  .book .meta { font-size: 12px; color: #8a8374; margin-top: 2px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid #d8d0bf; background: #faf7f0; color: #6b6455; }
+  .chip.on { background: #4a4237; border-color: #4a4237; color: #f7f4ee; }
+  .chip.dim { opacity: .45; }
+  .chip.busy { background: #a8632a; border-color: #a8632a; color: #fff; }
+  .back { margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  table.tasks { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.tasks th, table.tasks td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #eee8db; }
+  table.tasks th { color: #8a8374; font-weight: 600; }
+  .st-done { color: #3d6b35; } .st-error { color: #a8322a; } .st-running, .st-queued { color: #a8632a; }
+  .counts { font-size: 12.5px; color: #6b6455; margin-top: 8px; line-height: 1.7; }
+  a { color: #4a4237; }
+  .err { color: #a8322a; font-size: 13px; margin-top: 8px; min-height: 1em; }
+  .hint { font-size: 12px; color: #a39a87; margin-top: 6px; }
+  pre.out { background: #faf7f0; border: 1px solid #eee8db; border-radius: 5px; padding: 8px; font-size: 11.5px; max-height: 180px; overflow: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>bookflow 书架</h1>
+  <span class="sub">书籍状态管理 —— 每本书走到哪、正在做什么，从这里进</span>
+</header>
+<main id="main"></main>
+<script>
+"use strict";
+const $ = (h) => { const d = document.createElement("div"); d.innerHTML = h; return d.firstElementChild; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let current = null; // 当前打开的书 id
+let pollTimer = null;
+
+const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined)
+  .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+
+function chip(label, on, dim, busy) {
+  return `<span class="chip ${on ? "on" : ""} ${dim ? "dim" : ""} ${busy ? "busy" : ""}">${label}</span>`;
+}
+
+function stateSummary(stage) {
+  const parts = [];
+  for (const [k, v] of Object.entries(stage.blockStates || {})) parts.push(`${k} ${v}`);
+  return parts.length ? parts.join(" · ") : "—";
+}
+
+// ---------- 书架 ----------
+async function renderShelf() {
+  stopPoll();
+  const books = await api("/api/books");
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  const imp = $(`<div class="panel"><h2>导入一本书</h2>
+    <div class="row">
+      <input type="text" id="f-title" placeholder="书名（如：为何一切尚未消失）">
+      <input type="text" id="f-id" placeholder="书号（可选，英文短横线）" style="flex:.5">
+      <input type="text" id="f-pdf" placeholder="PDF 路径（本机路径，图书馆原件只读、导入即复制）">
+      <button class="primary" id="f-go">导入</button>
+    </div>
+    <div class="hint">源 PDF 会被复制进这本书自己的目录；图书馆原件永远只读。</div>
+    <div class="err" id="f-err"></div></div>`);
+  main.appendChild(imp);
+  imp.querySelector("#f-go").onclick = async () => {
+    const err = imp.querySelector("#f-err");
+    err.textContent = "";
+    try {
+      const m = await api("/api/books", {
+        title: imp.querySelector("#f-title").value,
+        id: imp.querySelector("#f-id").value,
+        pdfPath: imp.querySelector("#f-pdf").value,
+      });
+      openBook(m.id);
+    } catch (e) { err.textContent = "导入失败：" + e.message; }
+  };
+
+  const grid = $(`<div class="grid"></div>`);
+  main.appendChild(grid);
+  if (!books.length) grid.innerHTML = `<div class="panel">书架空 —— 从上面导入第一本。</div>`;
+  for (const b of books) {
+    const s = b.stage;
+    const card = $(`<div class="panel book">
+      <div class="t">${esc(b.title)}</div>
+      <div class="meta">${esc(b.id)} · ${s.blockCount} 块 / ${s.pageCount} 页</div>
+      <div class="chips">
+        ${chip("抽取", s.extracted)}${chip("页图", s.rendered)}${chip("工作台", s.exported)}
+        ${chip("原文已定", false, !(s.blockStates["原文已定"] > 0))}
+        ${b.inflight ? chip("任务进行中", false, false, true) : ""}
+      </div></div>`);
+    card.onclick = () => openBook(b.id);
+    grid.appendChild(card);
+  }
+}
+
+// ---------- 单书状态页 ----------
+async function renderBook(id) {
+  const b = await api("/api/books/" + encodeURIComponent(id));
+  const tasks = (await api("/api/tasks")).filter((t) => t.book === id).slice(0, 12);
+  const s = b.stage;
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  const back = $(`<button class="back">← 书架</button>`);
+  back.onclick = () => { current = null; renderShelf(); };
+  main.appendChild(back);
+
+  const head = $(`<div class="panel">
+    <h2>${esc(b.title)} <span style="font-weight:400;color:#8a8374">（${esc(b.id)}）</span></h2>
+    <div class="chips">
+      ${chip("导入", true)}
+      ${chip("抽取", s.extracted)}
+      ${chip("页图", s.rendered)}
+      ${chip("工作台", s.exported)}
+      ${chip("原文已定", false, !(s.blockStates["原文已定"] > 0))}
+      ${chip("OCR 第二意见", false, true)}${chip("MT", false, true)}${chip("机器三域", false, true)}
+    </div>
+    <div class="counts">块 ${s.blockCount} · 页 ${s.pageCount} · 状态分布：${esc(stateSummary(s))}<br>
+    灰色格为未点亮的行为（策略位），点亮次序见 TODO。</div>
+    <div class="row" style="margin-top:12px">
+      <button data-b="extract">抽取</button>
+      <button data-b="render">渲染页图</button>
+      <button data-b="export">导出工作台</button>
+      <button data-b="replay">回放裁决</button>
+      ${s.exported ? `<a href="/library/${encodeURIComponent(id)}/workbench.html" target="_blank"><button>打开工作台 ↗</button></a>` : ""}
+    </div>
+    <div class="hint">行为以任务入队执行，不阻塞书架；点完可以立刻去别的书。</div>
+    <div class="err" id="b-err"></div>
+  </div>`);
+  head.querySelectorAll("button[data-b]").forEach((btn) => {
+    btn.onclick = async () => {
+      head.querySelector("#b-err").textContent = "";
+      try {
+        await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: btn.dataset.b });
+        renderBook(id);
+      } catch (e) { head.querySelector("#b-err").textContent = e.message; }
+    };
+  });
+  main.appendChild(head);
+
+  const tp = $(`<div class="panel"><h2>任务记录（近 ${tasks.length} 条）</h2></div>`);
+  if (tasks.length) {
+    const rows = tasks.map((t) => `<tr>
+      <td>${esc(t.behavior)}</td>
+      <td class="st-${t.status}">${esc(t.status)}</td>
+      <td>${esc(t.startedAt ? t.startedAt.slice(11, 19) : "")}</td>
+      <td>${esc(t.endedAt ? t.endedAt.slice(11, 19) : "")}</td>
+      <td>${t.output ? `<pre class="out">${esc(t.output.split("\n").slice(-3).join("\n"))}</pre>` : ""}</td>
+    </tr>`).join("");
+    tp.appendChild($(`<table class="tasks"><tr><th>行为</th><th>状态</th><th>开始</th><th>结束</th><th>输出尾</th></tr>${rows}</table>`));
+  } else {
+    tp.appendChild($(`<div class="hint">还没有任务。</div>`));
+  }
+  main.appendChild(tp);
+
+  startPoll(() => { if (current === id) renderBook(id); });
+}
+
+// ---------- 轮询：有任务在跑才刷新 ----------
+const hasInflight = (books) => books.some((b) => b.inflight);
+function startPoll(fn) {
+  stopPoll();
+  pollTimer = setInterval(async () => {
+    const books = await api("/api/books");
+    if (hasInflight(books)) fn();
+  }, 2000);
+}
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+function openBook(id) { current = id; renderBook(id).catch(showErr); }
+function showErr(e) { document.getElementById("main").innerHTML = `<div class="panel err">加载失败：${esc(e.message)}</div>`; }
+
+renderShelf().catch(showErr);
+</script>
+</body>
+</html>

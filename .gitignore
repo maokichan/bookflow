@@ -1,6 +1,9 @@
 node_modules/
-data/
-workbench/
-inbox/processed/
+# 每书目录：可再生的大件不入库（源 PDF 副本 / 页图 / 工作台 / 任务流水）
+# 入库的是人的劳动：注册表、块图、裁决日志
+library/*/source.pdf
+library/*/pages/
+library/*/workbench.html
+library/*/tasks.jsonl
 __pycache__/
 .server.log

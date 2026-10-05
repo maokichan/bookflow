@@ -120,7 +120,7 @@ function binBlocksOf(i) {
   return arr;
 }
 function cur() { return binBlocks()[state.idx]; }
-function pageSrc(p) { return "../data/pages/p" + String(p).padStart(3, "0") + ".png"; }
+function pageSrc(p) { return PAGES_BASE + "p" + String(p).padStart(3, "0") + ".png"; }
 
 // ===== 动作 =====
 function push(action, block, payload) {

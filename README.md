@@ -10,31 +10,32 @@ PDF 书稿从入手到成书的全程工作流，最小可用版。架构与术�
 
 ## 命令
 
+一切工具按书寻址：`--book <id>`（书号在 `library/index.json` 登记）。
+
 ```
-npm run testbook   # 生成受控测试书（Typst，book/tools/typst.exe）
-npm run extract    # S0+S1：文本层 → 行 → 分型 → 段落重组 → data/blockgraph.json
-                   #   ⚠ 默认源是 data/source/test-book.pdf（29 块）！
-                   #   真实科目：node src/extract.ts <pdf路径> <书名>
-npm run render     # 页图 → data/pages/pNNN.png（工作台对照用）
-npm run export     # 工作台导出 → workbench/workbench.html（数据内联单文件）
-npm run replay     # 裁决日志回放：inbox/*.jsonl → 块图状态推进（唯一写者）
-npm run smoke      # 端到端冒烟测试（⚠ 会把 data/ 重置为测试书，跑完需重建科目现场）
+npm run app       # 书架 + 各书状态页 + 行为任务队列（本地服务，默认 127.0.0.1:8477）
+npm run testbook  # 生成受控测试书（Typst，book/tools/typst.exe）
+npm run extract   # S0+S1：文本层 → 行 → 分型 → 段落重组 + S2 清洗 → 该书 blockgraph.json
+npm run render    # 页图 → 该书 pages/pNNN.png
+npm run export    # 工作台导出 → 该书 workbench.html（数据内联单文件）
+npm run replay    # 裁决日志回放：该书 inbox/*.jsonl → 块图状态推进（唯一写者）
+npm run smoke     # 端到端冒烟（跑在测试书自己的目录里，不碰真实科目）
+# 例：npm run export -- --book pourquoi
 ```
 
 ## 文档
 
 - [`MAP.md`](MAP.md) —— 项目地图（红线 / 文档索引，模型会话入口）
 - [`TODO.md`](TODO.md) —— 唯一待办清单
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) —— 程序架构：书籍状态管理 / 功能层级 / 行为 / 产物溯源 / 队列
 - [`../book/书稿流水线架构.md`](../book/书稿流水线架构.md) —— 架构与宪法（上位文档）
 - [`交接文档.md`](交接文档.md) —— 冻结快照（2026-10-04 交接用，不再维护）
 
 ## 人工校对 #1 的操作环
 
-1. `node src/extract.ts data/source/real-01-baudrillard.pdf 为何一切尚未消失 && npm run render && npm run export`
-2. 浏览器打开 `workbench/workbench.html`（file:// 直开）
-3. 键盘流：J/K 移动 · E 改文（Enter 提交，IME 安全）· G 盖章（原文已定）· Y 退回 · T 改型 · I 缩放 · , . 翻页 · S 导出日志 · Tab 切箱
-4. 下载的 `adjudication-*.jsonl` 放入 `inbox/`，`npm run replay` → 块图推进
-5. 回放后重新 `npm run export`，工作台即反映新状态
+日常走书架：`npm run app` → 浏览器打开 `http://127.0.0.1:8477/` → 点开一本书 →
+用行为按钮（抽取 / 渲染页图 / 导出工作台 / 回放裁决），点「打开工作台」进入校对。
+命令行等价：`npm run export -- --book pourquoi` 等按书寻址的命令。
 
 ## MVP 已实现 / 未实现
 
