@@ -4,10 +4,11 @@
 // 队列当前串行（并发度是配置不是架构），任务并行产出各自产物，块图唯一写者不变。
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, statSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import { ROOT } from "./model.ts";
+import { ROOT, loadGraphSoft, readGraphVersion, saveGraph } from "./model.ts";
 import { loadRegistry, saveRegistry, bookDir, pathsFor, deriveStage, progress, libraryRoot, homeConfigured, setLibraryRoot, BEHAVIORS, BEHAVIOR_STEPS, type BookMeta } from "./library.ts";
+import { verdictFor, bookActs } from "./actions.ts";
 import { renderPagesToBuffers, pdfPageCount, hasTextLayer, FX_DEFAULTS, fxHash, type Fx } from "./pageimg.ts";
 
 const PORT = Number(process.env.BOOKFLOW_PORT ?? 8477);
@@ -22,6 +23,9 @@ interface Task {
 const tasks: Task[] = []; // 新的在前；完成即落该书 tasks.jsonl
 const waiting: Task[] = [];
 let running = false;
+
+const inflightOf = (id: string): Task | undefined =>
+  tasks.find((t) => t.book === id && (t.status === "queued" || t.status === "running"));
 
 function enqueue(book: string, behavior: string): Task {
   const t: Task = {
@@ -158,7 +162,9 @@ const server = createServer(async (req, res) => {
       json(res, 200, loadRegistry().filter((m) => !m.deletedAt).map((m) => {
         const P = pathsFor(m.id);
         const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
-        return { ...m, stage: deriveStage(m.id), progress: progress(m.id), params, inflight: inflight.has(m.id) };
+        const g = loadGraphSoft(P.graph);
+        const st = deriveStage(m.id, g);
+        return { ...m, stage: st, progress: progress(m.id, st), params, inflight: inflight.has(m.id), acts: bookActs(m.id, g) };
       }));
       return;
     }
@@ -192,6 +198,8 @@ const server = createServer(async (req, res) => {
       if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
       const { behavior } = await readBody(req);
       if (!BEHAVIORS[behavior] && !BEHAVIOR_STEPS[behavior]) { json(res, 400, { error: `未知行为 ${behavior}` }); return; }
+      const v = verdictFor(id, behavior, { inflight: inflightOf(id)?.behavior });
+      if (!v.ok) { json(res, 400, { error: v.reason }); return; } // 行为表执法：表外/资格不符默认拒绝
       json(res, 200, enqueue(id, behavior));
       return;
     }
@@ -202,7 +210,9 @@ const server = createServer(async (req, res) => {
       if (!meta) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
       const P = pathsFor(id);
       const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
-      json(res, 200, { ...meta, stage: deriveStage(id), progress: progress(id), params });
+      const g = loadGraphSoft(P.graph);
+      const st = deriveStage(id, g);
+      json(res, 200, { ...meta, stage: st, progress: progress(id, st), params, acts: bookActs(id, g) });
       return;
     }
     const bookParams = p.match(/^\/api\/books\/([^/]+)\/params$/);
@@ -216,6 +226,8 @@ const server = createServer(async (req, res) => {
         return;
       }
       if (req.method === "POST") {
+        const inflight = inflightOf(id);
+        if (inflight) { json(res, 400, { error: `任务在途（${inflight.behavior}）—— 完成后再调参数` }); return; }
         const body = await readBody(req);
         const fx = {
           contrast: Math.min(300, Math.max(50, Number(body.contrast) || 100)),
@@ -242,6 +254,8 @@ const server = createServer(async (req, res) => {
       // 确定预处理：产物指纹落定 + 全量按参数重渲（页图集合即产物），完成后才能识别
       const id = decodeURIComponent(bookConfirm[1]);
       if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const inflight = inflightOf(id);
+      if (inflight) { json(res, 400, { error: `任务在途（${inflight.behavior}）—— 完成后再确定预处理` }); return; }
       const P = pathsFor(id);
       const stored: any = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : {};
       const fx = { contrast: stored.contrast ?? 100, denoise: stored.denoise ?? 0, sharpen: stored.sharpen ?? 0 };
@@ -286,28 +300,38 @@ const server = createServer(async (req, res) => {
       if (bookVersions[0].endsWith("/versions") && req.method === "POST") {
         const body = await readBody(req);
         if (body.graph) {
-          // 保存语义（Ctrl+S）：工作台当前状态（含未落盘裁决）既存版、也落盘块图
+          // 保存语义（Ctrl+S）：工作台当前状态既存版、也落盘块图。
+          // 落盘前提 = 工作台不是陈旧的：baseVersion 与块图现版本对账，对不上拒收（409）——
+          // 否则陈旧产物会把回放/恢复推进过的块图整份倒灌回去。拒绝时本地裁决不丢，可导出日志走回放。
+          const inflight = inflightOf(id);
+          if (inflight) { json(res, 400, { error: `任务在途（${inflight.behavior}）会改写块图 —— 完成后再存版` }); return; }
           const P0 = pathsFor(id);
+          const cur = readGraphVersion(P0.graph);
+          if (cur === null || body.baseVersion !== cur) {
+            json(res, 409, { error: `工作台已过期 —— 你打开的产物基于块图 v${body.baseVersion ?? "?"}，现在已是 v${cur ?? "?"}。未落盘裁决没丢：在工作台按 S 导出裁决日志，放入该书 inbox/ 回书架回放` });
+            return;
+          }
           const g = body.graph;
-          g.version = (g.version ?? 0) + 1;
-          const tmp = P0.graph + ".tmp";
-          writeFileSync(tmp, JSON.stringify(g, null, 2), "utf-8");
-          renameSync(tmp, P0.graph);
+          g.version = cur; // saveGraph 统一 +1
+          saveGraph(P0.graph, g);
         }
-        json(res, 200, snapshot(id, body.label));
+        json(res, 200, { ...snapshot(id, body.label), graphVersion: readGraphVersion(pathsFor(id).graph) });
         return;
       }
     }
     const bookRestore = p.match(/^\/api\/books\/([^/]+)\/versions\/([^/]+)\/restore$/);
     if (bookRestore && req.method === "POST") {
       const id = decodeURIComponent(bookRestore[1]);
+      if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const inflight = inflightOf(id);
+      if (inflight) { json(res, 400, { error: `任务在途（${inflight.behavior}）—— 完成后再恢复版本` }); return; }
       const vf = path.join(pathsFor(id).dir, "versions", path.basename(decodeURIComponent(bookRestore[2])) + ".json");
       if (!existsSync(vf)) { json(res, 404, { error: "版本不存在" }); return; }
       const snap = JSON.parse(readFileSync(vf, "utf-8"));
       const P = pathsFor(id);
-      const tmp = P.graph + ".tmp";
-      writeFileSync(tmp, JSON.stringify(snap.graph, null, 2), "utf-8");
-      renameSync(tmp, P.graph); // 原子恢复
+      const g = snap.graph;
+      g.version = readGraphVersion(P.graph) ?? g.version - 1; // saveGraph 统一 +1：恢复也是一次推进，不回退版本号
+      saveGraph(P.graph, g); // 原子恢复
       json(res, 200, { ok: true, restored: snap.v });
       return;
     }

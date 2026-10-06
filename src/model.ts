@@ -76,12 +76,26 @@ export function loadGraph(graphPath: string): BlockGraph {
   return JSON.parse(readFileSync(graphPath, "utf-8"));
 }
 
-// 原子写：写临时文件后 rename，坏写不落盘（裁决数据比代码贵）
+// 原子写：写临时文件后 rename，坏写不落盘（裁决数据比代码贵）。
+// 版本号在此统一 +1 —— 块图版本单调递增是全项目纪律（抽取/回放/存版/恢复都经这里），
+// 工作台存版的 baseVersion 对账靠它成立。
 export function saveGraph(graphPath: string, g: BlockGraph): void {
   g.version += 1;
   const tmp = graphPath + ".tmp";
   writeFileSync(tmp, JSON.stringify(g, null, 2), "utf-8");
   renameSync(tmp, graphPath);
+}
+
+// 块图当前版本号；文件缺失或损坏返回 null —— 调用方按"未知"处理（对账拒绝、重抽从 0 起算）
+export function readGraphVersion(graphPath: string): number | null {
+  if (!existsSync(graphPath)) return null;
+  try { return JSON.parse(readFileSync(graphPath, "utf-8")).version ?? 0; } catch { return null; }
+}
+
+// 宽松读块图：缺失或损坏返回 null（状态页/行为判定用；写路径用 loadGraph 的严格版）
+export function loadGraphSoft(graphPath: string): BlockGraph | null {
+  if (!existsSync(graphPath)) return null;
+  try { return JSON.parse(readFileSync(graphPath, "utf-8")); } catch { return null; }
 }
 
 export function findBlock(g: BlockGraph, id: string): Block | undefined {

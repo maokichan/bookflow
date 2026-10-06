@@ -128,7 +128,7 @@ try {
   var mirrored = JSON.parse(localStorage.getItem(logKey()) || "[]");
   if (mirrored.length) { state.log = mirrored; toast("检测到 " + mirrored.length + " 条未落盘裁决，请先导出"); }
 } catch (e) {}
-function logKey() { return "bookflow:log:" + DATA.title; }
+function logKey() { return "bookflow:log:" + (DATA.bookId || DATA.title); } // 键跟书号：同名片不串日志（旧产物无 bookId 回退书名）
 
 // 待校队列 = 非附着块中仍为 typed 且未被吸收的，按书序；右侧栏 = 已定，逐渐成型的书
 function queue() {
@@ -471,16 +471,19 @@ function center() { return document.getElementById("center"); }
 function saveVersion() {
   var label = "校对至 " + (queue().length ? (queue().length - state.idx) + " 待定" : "已清");
   if (!location.origin.startsWith("http")) { toast("file:// 下无法保存 —— 从书架打开工作台"); return; }
-  var graph = { version: 0, source: DATA.source, title: DATA.title, createdAt: new Date().toISOString(), pages: DATA.pages, blocks: DATA.blocks };
+  // baseVersion 对账：块图已被回放/恢复推进时服务端拒收陈旧产物（409）——本地裁决不丢，可导出日志走回放
+  var graph = { version: DATA.graphVersion ?? 0, source: DATA.source, title: DATA.title, createdAt: DATA.createdAt, pages: DATA.pages, blocks: DATA.blocks };
   fetch("/api/books/" + encodeURIComponent(DATA.bookId) + "/versions", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ label: label, graph: graph }),
-  }).then(function (r) { return r.json(); })
-    .then(function (j) {
+    body: JSON.stringify({ label: label, graph: graph, baseVersion: DATA.graphVersion }),
+  }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (x) {
+      if (!x.ok) { toast(x.j.error || "保存被拒"); return; }
+      DATA.graphVersion = x.j.graphVersion; // 保存成功后本地基线跟进，可继续存版
       state.log = [];
       localStorage.setItem(logKey(), "[]");
       renderChrome();
-      toast("已保存 v" + j.v);
+      toast("已保存 v" + x.j.v);
     })
     .catch(function () { toast("保存失败 —— 请重试"); });
 }

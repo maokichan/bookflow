@@ -119,8 +119,12 @@ ok(stage.extracted && stage.rendered && stage.exported, `阶段推导齐全（${
 ok(stage.blockStates["原文已定"] === 1, `阶段状态含 1 个原文已定（实得 ${stage.blockStates["原文已定"] ?? 0}）`);
 
 // ---------- 清理：测试书的裁决痕迹移除，块图回到干净 typed 态 ----------
+// 行为表顺带受测：块图含人工成果时重抽被拒（防毁裁决），--force 才放行 —— 清理本身就走 force
 rmSync(path.join(P.processed, logName));
-run("src/extract.ts");
+r = run("src/extract.ts");
+ok(r.status !== 0 && r.stderr.toString().includes("拒绝抽取"), "行为表拒绝重抽已裁决块图");
+r = run("src/extract.ts", ["--force"]);
+ok(r.status === 0, "--force 显式越权重抽放行");
 run("src/exportwb.ts");
 console.log(failures ? `\n${failures} 项失败` : "\n全部通过 —— 测试书已重置，真实科目不受影响");
 process.exit(failures ? 1 : 0);

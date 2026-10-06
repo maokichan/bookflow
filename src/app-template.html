@@ -126,8 +126,8 @@ function nodeState(key, b, inflight) {
   if (key === "process") {
     if (inflight) return "run";
     if (s.exported) return "done";
-    if (!(b.params && b.params.confirmedAt)) return "lock"; // 未确定预处理，识别不解锁
-    return "cur";
+    const v = b.acts && b.acts.process; // 解锁资格来自服务端行为表（单一真相），前端只负责画
+    return v && !v.ok ? "lock" : "cur";
   }
   if (key === "proof") return s.exported ? (pr.proofTotal && pr.proofDone >= pr.proofTotal ? "done" : "cur") : "lock";
   return "lock"; // 翻译 / 双语校对 / 机器检查：策略位未点亮
@@ -201,7 +201,7 @@ async function renderBook(id) {
     if (st.key === "prep" && k === "cur") act = `<button class="ta acc" data-a="prep">预处理</button>`;
     if (st.key === "prep" && k === "done") act = `<button class="ta" data-a="prep" style="font-size:12.5px">参数</button>`;
     if (st.key === "process" && k === "run") act = `<button class="ta" disabled>识别中…</button>`;
-    if (st.key === "process" && k === "lock") act = `<span style="font-size:11px;color:var(--dim)">先完成预处理</span>`;
+    if (st.key === "process" && k === "lock") act = `<span style="font-size:11px;color:var(--dim)">${esc((b.acts && b.acts.process && b.acts.process.reason) || "先完成预处理")}</span>`;
     if (st.key === "process" && k === "cur") act = `<button class="ta acc" data-a="process">识别</button>`;
     if (st.key === "proof" && s.exported) act = `<button class="ta acc" data-a="proof">校对</button>`;
     return `<div class="node ${cls}"><div class="dot"></div><div class="lb">${st.label}</div><div class="sub">${sub}</div><div class="act">${act}</div></div>`;

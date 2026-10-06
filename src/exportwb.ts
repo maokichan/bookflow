@@ -13,15 +13,15 @@ if (!existsSync(P.pagesDir)) {
   process.exit(1);
 }
 const tpl = readFileSync(path.join(import.meta.dirname, "workbench-template.html"), "utf-8");
+// blocks 全量内联（含 history/absorbedInto 等）：Ctrl+S 把工作台块图整份写回，字段必须无损往返
 const payload = JSON.stringify({
   bookId: BOOK,
   title: g.title,
   source: g.source,
+  createdAt: g.createdAt,
+  graphVersion: g.version, // 存版对账：保存时回传 baseVersion，服务端与块图现版本比对，陈旧产物拒收
   pages: g.pages,
-  blocks: g.blocks.map((b) => ({
-    id: b.id, page: b.page, bbox: b.bbox, type: b.type, state: b.state, text: b.text,
-    level: b.level, role: b.role,
-  })),
+  blocks: g.blocks,
 }).replace(/<\/script>/gi, "<\\/script>");
 
 // 页图与工作台同在书目录下，相对路径即 pages/

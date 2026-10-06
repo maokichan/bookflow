@@ -3,16 +3,24 @@
 // 并补：页眉页脚跨页重复聚类（页面附着块）、大字号短行（结构块）。
 // 科目由注册表提供（书架导入时登记源与书名），工具按 --book 寻址。
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { readFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
-import { ROOT, type Block, type BlockGraph, type BlockType } from "./model.ts";
+import { ROOT, saveGraph, readGraphVersion, type Block, type BlockGraph, type BlockType } from "./model.ts";
 import { argBook, getBook, pathsFor } from "./library.ts";
+import { verdictFor } from "./actions.ts";
 
 // 科目由注册表提供（书架导入时登记源与书名），工具只按书号干活
 const BOOK = argBook();
 const meta = getBook(BOOK);
 const PDF_PATH = pathsFor(BOOK).source;
 const TITLE = meta.title;
+
+// 行为表执法（src/actions.ts）：块图已含人工成果时重抽 = 毁裁决，拒绝；--force 是显式越权通道
+const gate = verdictFor(BOOK, "extract");
+if (!gate.ok && !process.argv.includes("--force")) {
+  console.error(`拒绝抽取 —— ${gate.reason}`);
+  process.exit(1);
+}
 
 // ---------- pdfjs Node 全局 ----------
 import { DOMMatrix, Path2D, ImageData } from "@napi-rs/canvas";
@@ -342,9 +350,8 @@ const graph: BlockGraph = {
 
 const P = pathsFor(BOOK);
 mkdirSync(path.dirname(P.graph), { recursive: true });
-const tmp = P.graph + ".tmp"; // 原子写：块图里沉淀着人的裁决，坏写不落盘
-writeFileSync(tmp, JSON.stringify(graph, null, 2), "utf-8");
-renameSync(tmp, P.graph);
+graph.version = readGraphVersion(P.graph) ?? -1; // 版本单调：saveGraph 统一 +1 —— 重抽不回零，陈旧工作台靠版本对账识破
+saveGraph(P.graph, graph); // 原子写：块图里沉淀着人的裁决，坏写不落盘
 
 const byType = blocks.reduce<Record<string, number>>((m, b) => ((m[b.type] = (m[b.type] ?? 0) + 1), m), {});
 console.log(`块图写入 ${P.graph}`);

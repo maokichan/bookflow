@@ -2,7 +2,7 @@
 // 意图：书被项目记住（library/index.json），一切工具按书号寻址，不存在隐蔽默认科目。
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { ROOT } from "./model.ts";
+import { ROOT, loadGraphSoft, type BlockGraph } from "./model.ts";
 
 // ---------- 存储位置：首用时在主界面确定，运行期所有产物与运行时文件都住在它下面 ----------
 const HOME_FILE = path.join(ROOT, ".home.json"); // 记录库根路径（机器相关，不入版本库）
@@ -110,18 +110,18 @@ export interface BookStage {
   blockCount: number;
 }
 
-export function deriveStage(id: string): BookStage {
+export function deriveStage(id: string, g?: BlockGraph | null): BookStage {
   const P = pathsFor(id);
   const stage: BookStage = {
     extracted: false, rendered: false, exported: false,
     pageCount: 0, blockStates: {}, blockTypes: {}, blockCount: 0,
   };
-  if (existsSync(P.graph)) {
-    const g = JSON.parse(readFileSync(P.graph, "utf-8"));
+  const graph = g !== undefined ? g : loadGraphSoft(P.graph);
+  if (graph) {
     stage.extracted = true;
-    stage.pageCount = g.pages?.length ?? 0;
-    stage.blockCount = g.blocks?.length ?? 0;
-    for (const b of g.blocks) {
+    stage.pageCount = graph.pages?.length ?? 0;
+    stage.blockCount = graph.blocks?.length ?? 0;
+    for (const b of graph.blocks) {
       stage.blockStates[b.state] = (stage.blockStates[b.state] ?? 0) + 1;
       stage.blockTypes[b.type] = (stage.blockTypes[b.type] ?? 0) + 1;
     }
@@ -135,14 +135,14 @@ export function deriveStage(id: string): BookStage {
 // 口径：识别基建 15%（块图/页图/工作台各 5）+ 原文校对 45%（应校非附着块中已定占比）
 //      + 翻译 20% + 双语校对 10% + 机器检查与采纳 10%。
 // 未点亮的阶段恒 0 —— 不虚报。
-export function progress(id: string): { pct: number; proofDone: number; proofTotal: number } {
-  const st = deriveStage(id);
+export function progress(id: string, st?: BookStage): { pct: number; proofDone: number; proofTotal: number } {
+  const s = st ?? deriveStage(id);
   let pct = 0;
-  if (st.extracted) pct += 5;
-  if (st.rendered) pct += 5;
-  if (st.exported) pct += 5;
-  const proofTotal = Math.max(0, st.blockCount - (st.blockTypes.furniture ?? 0));
-  const proofDone = st.blockStates["原文已定"] ?? 0;
+  if (s.extracted) pct += 5;
+  if (s.rendered) pct += 5;
+  if (s.exported) pct += 5;
+  const proofTotal = Math.max(0, s.blockCount - (s.blockTypes.furniture ?? 0));
+  const proofDone = s.blockStates["原文已定"] ?? 0;
   if (proofTotal > 0) pct += 45 * (proofDone / proofTotal);
   return { pct: Math.round(pct * 10) / 10, proofDone, proofTotal };
 }
