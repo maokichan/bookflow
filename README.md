@@ -22,7 +22,7 @@ npm run render    # 页图 → 该书 pages/pNNN.png
 npm run export    # 工作台导出 → 该书 workbench.html（数据内联单文件）
 npm run replay    # 裁决日志回放：该书 inbox/*.jsonl → 块图状态推进（唯一写者）
 npm run smoke     # 端到端冒烟（跑在测试书自己的目录里，不碰真实科目）
-# 例：npm run export -- --book pourquoi
+# 例：npm run export -- --book test-book
 ```
 
 ## 文档
