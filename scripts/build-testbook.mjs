@@ -10,7 +10,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = path.join(ROOT, "library", "test-book");
 const OUT_PDF = path.join(OUT_DIR, "source.pdf");
 const CANDIDATES = [
-  path.join(ROOT, "..", "book", "tools", "typst.exe"),
+  path.join(ROOT, "book", "tools", "typst.exe"),
   "typst",
 ];
 
