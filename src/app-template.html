@@ -322,7 +322,11 @@ function toast(msg) {
 // ---------- 预处理面板：详情页内嵌，按钮开合，打开时拉采样 ----------
 async function togglePrepPanel(id) {
   let panel = document.getElementById("prepanel");
-  if (panel) { panel.remove(); return; }
+  if (panel) {
+    panel.remove();
+    document.querySelectorAll("[data-bandpop]").forEach((el) => el.remove());
+    return;
+  }
   const b = await api(`/api/books/${encodeURIComponent(id)}`);
   const main = document.getElementById("main");
   panel = document.createElement("div");
@@ -370,7 +374,7 @@ async function togglePrepPanel(id) {
   pd.value = (b.params && b.params.denoise) ?? 0;
   ps.value = (b.params && b.params.sharpen) ?? 0;
   po.value = (b.params && b.params.ocr && b.params.ocr.engine) || "textlayer";
-  let bands = Array.isArray(b.params && b.params.bands) ? b.params.bands.slice() : [];
+  let bands = ((await api(`/api/books/${encodeURIComponent(id)}/regions`)).bands ?? []).slice();
   let drawMode = false, drawStart = null, ghost = null;
   const showSamples = (j) => {
     panel.querySelector("#fx-samples").innerHTML = j.samples.map((s) =>
@@ -387,6 +391,17 @@ async function togglePrepPanel(id) {
         el.appendChild(o);
       }
     });
+  };
+  let bandPopup = null, popupHooks = null;
+  const closeBandPopup = () => {
+    if (popupHooks) {
+      document.removeEventListener("pointerdown", popupHooks.onDoc, true);
+      document.removeEventListener("keydown", popupHooks.onKey);
+      popupHooks = null;
+    }
+    if (bandPopup) { bandPopup.remove(); bandPopup = null; }
+    ghost = null;
+    drawBands();
   };
   const loadSamples = async () => {
     const host = panel.querySelector("#fx-samples");
@@ -409,6 +424,7 @@ async function togglePrepPanel(id) {
   panel.querySelector("#fx-draw").onclick = () => {
     drawMode = !drawMode;
     panel.querySelector("#fx-draw").classList.toggle("acc", drawMode);
+    if (!drawMode) closeBandPopup();
     toast(drawMode ? "在采样图上纵向拖一条横带" : "已退出标区域");
   };
   const samplesEl = panel.querySelector("#fx-samples");
@@ -426,20 +442,29 @@ async function togglePrepPanel(id) {
     const up = () => {
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
-      if (ghost && ghost.y1 - ghost.y0 < 0.005) ghost = null;
-      drawBands();
-      if (ghost) {
-        const mid = (ghost.y0 + ghost.y1) / 2 * rect.height + rect.top;
-        const ch = document.createElement("div");
-        ch.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);top:" + Math.max(60, mid - 20) + "px;z-index:60;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px 12px;display:flex;gap:14px";
-        ch.innerHTML = `<button class="ta" data-k="header">这条是页眉</button><button class="ta" data-k="footer">这条是页脚</button><button class="ta" data-k="x">取消</button>`;
-        document.body.appendChild(ch);
-        ch.querySelectorAll("button").forEach((b) => b.onclick = () => {
-          if (b.dataset.k !== "x") { ghost.kind = b.dataset.k; bands.push(ghost); }
-          ghost = null; ch.remove(); drawBands();
-        });
-      }
       drawStart = null;
+      if (ghost && ghost.y1 - ghost.y0 < 0.005) { ghost = null; drawBands(); return; }
+      drawBands();
+      if (!ghost) return;
+      const band = ghost; // 保留显示；去留由弹窗决定
+      closeBandPopup(); // 全局只留一个弹窗，并清掉上一轮
+      ghost = band;
+      drawBands();
+      const mid = (band.y0 + band.y1) / 2 * rect.height + rect.top;
+      bandPopup = document.createElement("div");
+      bandPopup.setAttribute("data-bandpop", "");
+      bandPopup.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);top:" + Math.max(60, mid - 20) + "px;z-index:60;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px 12px;display:flex;gap:14px";
+      bandPopup.innerHTML = `<button class="ta" data-k="header">这条是页眉</button><button class="ta" data-k="footer">这条是页脚</button><button class="ta" data-k="x">取消</button>`;
+      document.body.appendChild(bandPopup);
+      bandPopup.querySelectorAll("button").forEach((b) => b.onclick = () => {
+        if (b.dataset.k !== "x") { band.kind = b.dataset.k; bands.push(band); }
+        closeBandPopup();
+      });
+      const onDoc = (ev) => { if (bandPopup && !bandPopup.contains(ev.target)) closeBandPopup(); };
+      const onKey = (ev) => { if (ev.key === "Escape") closeBandPopup(); };
+      document.addEventListener("pointerdown", onDoc, true);
+      document.addEventListener("keydown", onKey);
+      popupHooks = { onDoc, onKey };
     };
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
