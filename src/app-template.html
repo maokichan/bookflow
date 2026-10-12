@@ -9,6 +9,12 @@
     --accent: #b4552d; --ok: #4a7c59; --hair: #e4e0d6;
   }
   * { box-sizing: border-box; }
+  /* 滚动条：只写 ::-webkit-scrollbar，绝不写 scrollbar-width/scrollbar-color ——
+     Chromium 121+ 起写了标准属性，webkit 规则会被整个忽略（TuRead STYLE.md 实测的坑） */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(42,42,40,.12); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(42,42,40,.28); }
   body { margin: 0; background: var(--desk); color: var(--ink);
     font-family: "Times New Roman", "Noto Serif SC", "SimSun", serif; }
   button { font: inherit; background: none; border: none; color: var(--ink); cursor: pointer; padding: 0; }
@@ -104,6 +110,12 @@ const $ = (h) => { const d = document.createElement("div"); d.innerHTML = h; ret
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined)
   .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+
+// 兜底网：动作失败不得无声——漏接的失败在这里现形（正常路径各自 try/catch，这里只兜遗漏）
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("未接住的失败：", e.reason);
+  toast(e.reason?.message ?? String(e.reason));
+});
 
 const STAGES = [
   { key: "import", label: "导入" },
@@ -232,9 +244,11 @@ async function renderBook(id) {
       const btn = row.querySelector("button");
       btn.onclick = async () => {
         if (btn.dataset.armed !== "1") { btn.dataset.armed = "1"; btn.textContent = "确认恢复"; btn.classList.add("acc"); return; }
-        await api(`/api/books/${encodeURIComponent(id)}/versions/${encodeURIComponent(v.file)}/restore`, {});
-        toast("已恢复到 v" + v.v);
-        renderBook(id);
+        try {
+          await api(`/api/books/${encodeURIComponent(id)}/versions/${encodeURIComponent(v.file)}/restore`, {});
+          toast("已恢复到 v" + v.v);
+          renderBook(id);
+        } catch (e) { toast(e.message); }
       };
       vp.appendChild(row);
     }
@@ -262,34 +276,41 @@ async function renderBook(id) {
       setTimeout(() => { delBtn.dataset.step = ""; delBtn.textContent = "删除这本书"; }, 4000);
       return;
     }
-    await deleteBook(id);
+    try { await deleteBook(id); } catch (e) { toast(e.message); }
   };
 
   main.querySelectorAll("button[data-a]").forEach((btn) => {
     btn.onclick = async () => {
-      if (btn.dataset.a === "process") {
-        openOcrPick(id);
-      } else if (btn.dataset.a === "reprocess") {
-        await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "reprocess" });
-        renderBook(id);
-      } else if (btn.dataset.a === "prep") {
-        togglePrepPanel(id);
-      } else if (btn.dataset.a === "proof") {
-        window.open(`/library/${encodeURIComponent(id)}/workbench.html`, "_blank");
-      }
+      try {
+        if (btn.dataset.a === "process") {
+          await openOcrPick(id);
+        } else if (btn.dataset.a === "reprocess") {
+          await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "reprocess" });
+          renderBook(id);
+        } else if (btn.dataset.a === "prep") {
+          await togglePrepPanel(id);
+        } else if (btn.dataset.a === "proof") {
+          window.open(`/library/${encodeURIComponent(id)}/workbench.html`, "_blank");
+        }
+      } catch (e) { toast(e.message); }
     };
   });
 
   pollBooks(() => { if (location.hash === "#/b/" + id) renderBook(id); });
 }
 
-// ---------- 轮询：只在有任务运行时刷新 ----------
+// ---------- 轮询：只在有任务运行时刷新（失败不惊动人，下个周期再试；留痕限频防刷屏） ----------
 let pollTimer = null;
+let lastPollWarn = 0;
 function pollBooks(fn) {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
-    const books = await api("/api/books");
-    if (books.some((b) => b.inflight)) fn();
+    try {
+      const books = await api("/api/books");
+      if (books.some((b) => b.inflight)) fn();
+    } catch (e) {
+      if (Date.now() - lastPollWarn > 30000) { console.warn("轮询失败（30 秒内不重复提醒）——", e); lastPollWarn = Date.now(); }
+    }
   }, 2000);
 }
 
@@ -407,8 +428,14 @@ async function togglePrepPanel(id) {
     const host = panel.querySelector("#fx-samples");
     host.innerHTML = `<div style="color:var(--dim);font-size:12.5px">渲染采样…</div>`;
     const q = new URLSearchParams({ pct: "5,30,55,80" });
-    const j = await fetch(`/api/books/${encodeURIComponent(id)}/samples?` + q).then((r) => r.json());
-    showSamples(j);
+    try {
+      const r = await fetch(`/api/books/${encodeURIComponent(id)}/samples?` + q);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.status);
+      showSamples(j);
+    } catch (e) {
+      host.innerHTML = `<div style="color:#a8322a;font-size:12.5px">采样失败 —— ${esc(e.message)}</div>`;
+    }
   };
   let debounce = null;
   const liveRefresh = () => {
@@ -470,19 +497,24 @@ async function togglePrepPanel(id) {
     document.addEventListener("pointerup", up);
   });
   panel.querySelector("#fx-confirm").onclick = async () => {
-    await api(`/api/books/${encodeURIComponent(id)}/regions`, { bands });
-    await api(`/api/books/${encodeURIComponent(id)}/params`, {
-      contrast: Number(pc.value) || 100, denoise: Number(pd.value) || 0, sharpen: Number(ps.value) || 0,
-      ocr: { engine: po.value },
-    });
-    await api(`/api/books/${encodeURIComponent(id)}/preprocess/confirm`, {});
-    renderBook(id);
+    // 三步都是"落定"语义，失败原地可重试；失败时面板留着，成功才整页刷新
+    try {
+      await api(`/api/books/${encodeURIComponent(id)}/regions`, { bands });
+      await api(`/api/books/${encodeURIComponent(id)}/params`, {
+        contrast: Number(pc.value) || 100, denoise: Number(pd.value) || 0, sharpen: Number(ps.value) || 0,
+        ocr: { engine: po.value },
+      });
+      await api(`/api/books/${encodeURIComponent(id)}/preprocess/confirm`, {});
+      renderBook(id);
+    } catch (e) { toast(e.message); }
   };
 }
 
 // ---------- 识别来源选择：书籍自带文本层 / 云端 / 本地 ----------
 async function openOcrPick(id) {
-  const det = await fetch(`/api/books/${encodeURIComponent(id)}/textlayer`).then((r) => r.json()).catch(() => ({ hasText: true }));
+  const det = await fetch(`/api/books/${encodeURIComponent(id)}/textlayer`)
+    .then((r) => r.json())
+    .catch((e) => { console.warn("文本层探测失败（按有文本层放行）——", e); return { hasText: true }; });
   let panel = document.getElementById("ocrpick");
   if (panel) panel.remove();
   panel = $(`<div id="ocrpick" style="position:fixed;inset:0;background:rgba(42,42,40,.35);z-index:50">
@@ -506,13 +538,15 @@ async function openOcrPick(id) {
   panel.querySelector("#ocr-go").onclick = async () => {
     const eng = panel.querySelector('input[name=ocrsrc]:checked');
     if (!eng) return;
-    const p0 = await api(`/api/books/${encodeURIComponent(id)}/params`);
-    await api(`/api/books/${encodeURIComponent(id)}/params`, {
-      contrast: p0.contrast, denoise: p0.denoise, sharpen: p0.sharpen, ocr: { engine: eng.value },
-    });
-    panel.remove();
-    await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "process" });
-    renderBook(id);
+    try {
+      const p0 = await api(`/api/books/${encodeURIComponent(id)}/params`);
+      await api(`/api/books/${encodeURIComponent(id)}/params`, {
+        contrast: p0.contrast, denoise: p0.denoise, sharpen: p0.sharpen, ocr: { engine: eng.value },
+      });
+      panel.remove();
+      await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "process" });
+      renderBook(id);
+    } catch (e) { toast(e.message); }
   };
 }
 
@@ -531,24 +565,28 @@ const CFG_FIELDS = [
 ];
 const cfgEl = document.getElementById("cfg");
 document.getElementById("cfgBtn").onclick = async () => {
-  const c = await api("/api/config");
-  for (const [fid, path] of CFG_FIELDS) {
-    const seg = path.split(".");
-    document.getElementById(fid).value = (c[seg[0]]?.[seg[1]]?.[seg[2]] ?? "");
-  }
-  cfgEl.style.display = "block";
+  try {
+    const c = await api("/api/config");
+    for (const [fid, path] of CFG_FIELDS) {
+      const seg = path.split(".");
+      document.getElementById(fid).value = (c[seg[0]]?.[seg[1]]?.[seg[2]] ?? "");
+    }
+    cfgEl.style.display = "block";
+  } catch (e) { toast(e.message); }
 };
 document.getElementById("cfgClose").onclick = () => (cfgEl.style.display = "none");
 document.getElementById("cfgSave").onclick = async () => {
-  const c = await api("/api/config");
-  for (const [fid, path] of CFG_FIELDS) {
-    const seg = path.split(".");
-    c[seg[0]] ??= {}; c[seg[0]][seg[1]] ??= {};
-    c[seg[0]][seg[1]][seg[2]] = document.getElementById(fid).value.trim();
-  }
-  await api("/api/config", c);
-  toast("已保存");
-  cfgEl.style.display = "none";
+  try {
+    const c = await api("/api/config");
+    for (const [fid, path] of CFG_FIELDS) {
+      const seg = path.split(".");
+      c[seg[0]] ??= {}; c[seg[0]][seg[1]] ??= {};
+      c[seg[0]][seg[1]][seg[2]] = document.getElementById(fid).value.trim();
+    }
+    await api("/api/config", c);
+    toast("已保存");
+    cfgEl.style.display = "none";
+  } catch (e) { toast(e.message); }
 };
 
 async function boot() {
@@ -565,9 +603,11 @@ async function boot() {
       </div></div>`);
     main.appendChild(p);
     p.querySelector("#h-go").onclick = async () => {
-      await api("/api/home", { path: p.querySelector("#h-path").value });
-      document.getElementById("cfgBtn").style.display = "";
-      route();
+      try {
+        await api("/api/home", { path: p.querySelector("#h-path").value });
+        document.getElementById("cfgBtn").style.display = "";
+        route();
+      } catch (e) { toast(e.message); }
     };
     return;
   }

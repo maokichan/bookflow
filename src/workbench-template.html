@@ -23,9 +23,11 @@
   #topbar .count { font-size: 12.5px; color: var(--dim); white-space: nowrap; }
 
   /* 挂载线：左右两栏挂在线上，点线上的字收放 */
+  /* 挂载线：左右两栏挂在线上，点线上的字收放；字的显隐反映开合态（开=在，合=淡） */
   .railtab { position: fixed; top: 36px; z-index: 21; height: 26px; line-height: 26px;
     font-size: 12.5px; color: var(--ink); opacity: .38; padding: 0 14px; background: var(--desk); }
-  .railtab:hover { opacity: .85; }
+  .railtab:hover { opacity: 1; }
+  body:not(.noL) #tabL, body:not(.noR) #tabR { opacity: .82; }
   #tabL { left: 0; border-right: 1px solid var(--line); }
   #tabR { right: 0; border-left: 1px solid var(--line); }
 
@@ -39,9 +41,15 @@
   #leftrail { left: 0; border-right: 1px solid var(--line); }
   #rightrail { right: 0; border-left: 1px solid var(--line); }
   .rail .rh { font-size: 11.5px; color: var(--dim); margin: 4px 0 8px; font-family: ui-monospace, Consolas, monospace; }
+  /* 滚动条：只写 ::-webkit-scrollbar，绝不写 scrollbar-width/scrollbar-color ——
+     Chromium 121+ 起写了标准属性，webkit 规则会被整个忽略（TuRead STYLE.md 实测的坑）。
+     静息低存在感，指针悬上去才加深 */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(42,42,40,.12); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(42,42,40,.28); }
   #center::-webkit-scrollbar, .rail::-webkit-scrollbar, #curcard .ctxt::-webkit-scrollbar { width: 6px; height: 6px; }
-  #center::-webkit-scrollbar-thumb, .rail::-webkit-scrollbar-thumb, #curcard .ctxt::-webkit-scrollbar-thumb { background: #c6c0b2; border-radius: 3px; }
-  #center::-webkit-scrollbar-track, .rail::-webkit-scrollbar-track, #curcard .ctxt::-webkit-scrollbar-track { background: transparent; }
+  #center::-webkit-scrollbar-thumb, .rail::-webkit-scrollbar-thumb, #curcard .ctxt::-webkit-scrollbar-thumb { border-radius: 3px; }
   .ol-item { font-size: 13px; padding: 3px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ol-item.lv1 { padding-left: 6px; }
   .ol-item.lv2 { padding-left: 28px; border-left: 1px solid var(--hair); margin-left: 10px; }
@@ -95,8 +103,8 @@
   <span class="sp"></span>
   <span class="count" id="counts"></span>
 </div>
-<button class="railtab" id="tabL">结构</button>
-<button class="railtab" id="tabR">已定</button>
+<button class="railtab" id="tabL" aria-pressed="true">结构</button>
+<button class="railtab" id="tabR" aria-pressed="true">已定</button>
 <div class="rail" id="leftrail"></div>
 <div class="rail" id="rightrail"></div>
 <div id="center"><div id="pages"></div></div>
@@ -127,7 +135,7 @@ var state = { idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, l
 try {
   var mirrored = JSON.parse(localStorage.getItem(logKey()) || "[]");
   if (mirrored.length) { state.log = mirrored; toast("检测到 " + mirrored.length + " 条未落盘裁决，请先导出"); }
-} catch (e) {}
+} catch (e) { console.warn("本地镜像裁决日志读不出（忽略）——", e); }
 function logKey() { return "bookflow:log:" + (DATA.bookId || DATA.title); } // 键跟书号：同名片不串日志（旧产物无 bookId 回退书名）
 
 // 待校队列 = 非附着块中仍为 typed 且未被吸收的，按书序；右侧栏 = 已定，逐渐成型的书
@@ -393,9 +401,26 @@ function move(d) {
 }
 
 // ===== 导出 =====
+// http 源：直存服务端该书 inbox（回放器消费），服务端确认收到才清本地——
+// 下载不落盘即丢裁决的坑就此关闭。file:// 源没有服务端可托付，维持浏览器下载。
 function exportLog() {
   if (!state.log.length) { toast("日志为空"); return; }
   var text = state.log.map(function (a) { return JSON.stringify(a); }).join("\n") + "\n";
+  if (location.origin.startsWith("http")) {
+    fetch("/api/books/" + encodeURIComponent(DATA.bookId) + "/verdicts", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: text }),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (!x.ok) { toast(x.j.error || "存入被拒 —— 日志还在本地"); return; }
+        state.log = [];
+        localStorage.setItem(logKey(), "[]");
+        renderChrome();
+        toast("已存入该书 inbox —— 回书架点回放生效");
+      })
+      .catch(function () { toast("存入失败 —— 日志还在本地，稍后重试"); });
+    return;
+  }
   var blob = new Blob([text], { type: "application/x-ndjson" });
   var a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -502,8 +527,15 @@ function modebar(msg) {
 }
 
 // ===== 事件 =====
-document.getElementById("tabL").addEventListener("click", function () { document.body.classList.toggle("noL"); });
-document.getElementById("tabR").addEventListener("click", function () { document.body.classList.toggle("noR"); });
+function wireRailTab(id, cls) {
+  var tab = document.getElementById(id);
+  tab.addEventListener("click", function () {
+    document.body.classList.toggle(cls);
+    tab.setAttribute("aria-pressed", document.body.classList.contains(cls) ? "false" : "true");
+  });
+}
+wireRailTab("tabL", "noL");
+wireRailTab("tabR", "noR");
 document.getElementById("leftrail").addEventListener("click", function (e) {
   var it = e.target.closest(".ol-item");
   if (!it || state.editing) return;

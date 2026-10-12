@@ -8,10 +8,15 @@ import { ROOT, loadGraphSoft, type BlockGraph } from "./model.ts";
 const HOME_FILE = path.join(ROOT, ".home.json"); // 记录库根路径（机器相关，不入版本库）
 const DEFAULT_ROOT = path.join(ROOT, "library");
 
+let homeWarned = false;
 export function libraryRoot(): string {
   if (!existsSync(HOME_FILE)) return DEFAULT_ROOT;
   try { return JSON.parse(readFileSync(HOME_FILE, "utf-8")).libraryRoot ?? DEFAULT_ROOT; }
-  catch { return DEFAULT_ROOT; }
+  catch (e) {
+    // 损坏 ≠ 未配置：静默回默认库根会让书架看起来"被清空"，至少喊一声
+    if (!homeWarned) { console.warn(".home.json 损坏，暂回默认库根 —— 修复或删除该文件后重新设置", e); homeWarned = true; }
+    return DEFAULT_ROOT;
+  }
 }
 export function homeConfigured(): boolean {
   return existsSync(HOME_FILE);

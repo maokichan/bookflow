@@ -59,12 +59,13 @@ function spawnStep(t: Task): void {
     t.exitCode = code;
     t.endedAt = new Date().toISOString();
     t.output = out.slice(-4000);
-    try { appendFileSync(pathsFor(t.book).tasks, JSON.stringify(t) + "\n"); } catch {}
+    try { appendFileSync(pathsFor(t.book).tasks, JSON.stringify(t) + "\n"); }
+    catch (e) { console.error(`[server] 任务记录落盘失败（${t.book}）——`, e); }
     if (code === 0) {
       try {
         if (t.behavior === "process") snapshot(t.book, "识别完成");
         else if (t.behavior === "replay") snapshot(t.book, "回放后");
-      } catch {}
+      } catch (e) { console.error(`[server] 自动存版失败（${t.book}）——`, e); }
     }
     running = false;
     pump();
@@ -95,11 +96,11 @@ function slugify(s: string): string {
   return ascii || "b" + Date.now().toString(36);
 }
 function importBookData(title: string, idGiven: string | undefined, pdf: Buffer, origin: string): BookMeta {
-  if (!title?.trim()) throw new Error("需要书名");
-  if (pdf.length < 5 || pdf.subarray(0, 5).toString("latin1") !== "%PDF-") throw new Error("不是 PDF 文件");
+  if (!title?.trim()) throw new UserError("需要书名");
+  if (pdf.length < 5 || pdf.subarray(0, 5).toString("latin1") !== "%PDF-") throw new UserError("不是 PDF 文件");
   const books = loadRegistry();
   let id = (idGiven?.trim() || slugify(title)).replace(/[\\/\0]/g, "");
-  if (books.some((b) => b.id === id)) throw new Error(`书号 ${id} 已被占用`);
+  if (books.some((b) => b.id === id)) throw new UserError(`书号 ${id} 已被占用`);
   const dir = bookDir(id);
   mkdirSync(path.join(dir, "inbox", "processed"), { recursive: true });
   writeFileSync(pathsFor(id).source, pdf); // 红线：图书馆只读，导入即复制
@@ -110,10 +111,11 @@ function importBookData(title: string, idGiven: string | undefined, pdf: Buffer,
 }
 function importBook(body: { pdfPath?: string; title?: string; id?: string }): BookMeta {
   const p = body.pdfPath?.trim().replace(/^~(?=$|\/|\\)/, process.env.USERPROFILE ?? "");
-  if (!p || !p.toLowerCase().endsWith(".pdf")) throw new Error("需要 PDF 路径");
+  if (!p || !p.toLowerCase().endsWith(".pdf")) throw new UserError("需要 PDF 路径");
   const src = path.resolve(p);
-  if (!existsSync(src) || !statSync(src).isFile()) throw new Error(`文件不存在 ${src}`);
-  return importBookData(body.title ?? "", body.id, readFileSync(src), src);
+  if (!existsSync(src) || !statSync(src).isFile()) throw new UserError(`文件不存在 ${src}`);
+  try { return importBookData(body.title ?? "", body.id, readFileSync(src), src); }
+  catch (e) { if (e instanceof UserError) throw e; throw new UserError(`读不了这个文件 ${src} —— ${e instanceof Error ? e.message : e}`); }
 }
 
 // ---------- HTTP ----------
@@ -121,6 +123,10 @@ const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".png": "image/png", ".json": "application/json",
   ".pdf": "application/pdf", ".jsonl": "application/x-ndjson", ".js": "text/javascript",
 };
+
+// 用户输错与程序出走的分界（TODO 错误处理三档）：输错 400 带人话原因，意外 500 留栈控制台。
+// 处理器里凡"用户可自行修正"的失败都抛这个；其余异常一律按真 bug 对待。
+class UserError extends Error {}
 
 function json(res: import("node:http").ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { "content-type": "application/json; charset=utf-8" });
@@ -131,7 +137,7 @@ function readBody(req: import("node:http").IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let s = "";
     req.on("data", (d) => (s += d));
-    req.on("end", () => { try { resolve(s ? JSON.parse(s) : {}); } catch (e) { reject(e); } });
+    req.on("end", () => { try { resolve(s ? JSON.parse(s) : {}); } catch { reject(new UserError("请求体不是合法 JSON")); } });
     req.on("error", reject);
   });
 }
@@ -153,7 +159,8 @@ const server = createServer(async (req, res) => {
     if (p === "/api/home" && req.method === "POST") {
       const body = await readBody(req);
       if (!body.path) { json(res, 400, { error: "需要存储路径" }); return; }
-      setLibraryRoot(body.path);
+      try { setLibraryRoot(body.path); }
+      catch (e) { throw new UserError(`建不了存储目录 ${body.path} —— ${e instanceof Error ? e.message : e}`); }
       json(res, 200, { configured: true, libraryRoot: libraryRoot() });
       return;
     }
@@ -371,6 +378,22 @@ const server = createServer(async (req, res) => {
         return;
       }
     }
+    const bookVerdicts = p.match(/^\/api\/books\/([^/]+)\/verdicts$/);
+    if (bookVerdicts && req.method === "POST") {
+      // 工作台裁决日志直存：http 源下导出走这里（落进该书 inbox/，回放器消费），
+      // 不再赌浏览器下载是否落盘；写的是收发箱不是块图，唯一写者纪律不变。
+      const id = decodeURIComponent(bookVerdicts[1]);
+      if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
+      const body = await readBody(req);
+      const text = typeof body.text === "string" ? body.text : "";
+      if (!text.trim()) { json(res, 400, { error: "日志为空" }); return; }
+      const inbox = pathsFor(id).inbox;
+      mkdirSync(inbox, { recursive: true });
+      const f = path.join(inbox, `adjudication-${Date.now()}.jsonl`);
+      writeFileSync(f, text.endsWith("\n") ? text : text + "\n", "utf-8");
+      json(res, 200, { ok: true, file: path.basename(f) });
+      return;
+    }
     if (p === "/api/tasks" && req.method === "GET") {
       json(res, 200, tasks.slice(0, 100));
       return;
@@ -381,7 +404,12 @@ const server = createServer(async (req, res) => {
     }
     json(res, 404, { error: "no route" });
   } catch (e: any) {
-    json(res, 400, { error: String(e.message ?? e) });
+    if (e instanceof UserError) { json(res, 400, { error: e.message }); return; }
+    // 意外 = 真 bug：栈留服务进程控制台，回给人一句不含糊的话
+    console.error(`[server] ${req.method} ${p} 意外失败 ——`);
+    console.error(e);
+    if (!res.headersSent) json(res, 500, { error: "服务端意外错误（详情见服务进程控制台）" });
+    else res.end();
   }
 });
 

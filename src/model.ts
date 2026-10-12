@@ -86,16 +86,27 @@ export function saveGraph(graphPath: string, g: BlockGraph): void {
   renameSync(tmp, graphPath);
 }
 
-// 块图当前版本号；文件缺失或损坏返回 null —— 调用方按"未知"处理（对账拒绝、重抽从 0 起算）
-export function readGraphVersion(graphPath: string): number | null {
+// 块图当前版本号；文件缺失或损坏返回 null —— 调用方按"未知"处理（对账拒绝、重抽从 0 起算）。
+// 损坏与缺失必须分开喊：损坏被当"没抽过"会诱发覆盖性重抽，每次读都喊则跟着轮询刷屏 —— 只喊一次。
+const corruptedWarned = new Set<string>();
+function softRead<T>(graphPath: string): T | null {
   if (!existsSync(graphPath)) return null;
-  try { return JSON.parse(readFileSync(graphPath, "utf-8")).version ?? 0; } catch { return null; }
+  try { return JSON.parse(readFileSync(graphPath, "utf-8")); }
+  catch (e) {
+    if (!corruptedWarned.has(graphPath)) {
+      console.warn(`块图存在但解析失败（当它不存在用）—— ${graphPath}`, e);
+      corruptedWarned.add(graphPath);
+    }
+    return null;
+  }
+}
+export function readGraphVersion(graphPath: string): number | null {
+  return softRead<{ version?: number }>(graphPath)?.version ?? null;
 }
 
 // 宽松读块图：缺失或损坏返回 null（状态页/行为判定用；写路径用 loadGraph 的严格版）
 export function loadGraphSoft(graphPath: string): BlockGraph | null {
-  if (!existsSync(graphPath)) return null;
-  try { return JSON.parse(readFileSync(graphPath, "utf-8")); } catch { return null; }
+  return softRead<BlockGraph>(graphPath);
 }
 
 export function findBlock(g: BlockGraph, id: string): Block | undefined {

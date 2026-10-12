@@ -37,7 +37,10 @@ export function verdictFor(id: string, act: string, ctx: { inflight?: string; gr
     case "process": // 识别（抽取→页图→工作台）：预处理门 + 重抽会毁人工裁决
       if (ctx.inflight) return no(`任务在途（${ctx.inflight}），完成后再排`);
       let confirmed = false;
-      try { confirmed = !!JSON.parse(readFileSync(P.params, "utf-8")).confirmedAt; } catch {}
+      if (existsSync(P.params)) { // 缺失是常态（没做过预处理）；损坏才留痕
+        try { confirmed = !!JSON.parse(readFileSync(P.params, "utf-8")).confirmedAt; }
+        catch (e) { console.warn(`params.json 损坏（按未确认处理）—— ${P.params}`, e); }
+      }
       if (!confirmed) return no("先完成预处理（确定预处理后解锁识别）");
       if (graphHasHumanWork(graph) || inboxPending(id))
         return no("块图已含人工裁决或待回放日志 —— 重抽会覆盖；确要重来，先恢复「识别完成」版");
