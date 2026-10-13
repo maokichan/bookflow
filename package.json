@@ -19,6 +19,7 @@
   "private": true,
   "dependencies": {
     "@napi-rs/canvas": "^1.0.10",
+    "onnxruntime-node": "^1.30.0",
     "pdfjs-dist": "4.8.69",
     "sharp": "^0.35.5"
   }
