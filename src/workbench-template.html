@@ -33,12 +33,17 @@
   .rail { position: fixed; top: 62px; bottom: 0; width: var(--railw, 252px); z-index: 15;
     background: var(--desk); overflow-y: auto; padding: 10px 12px 120px; }
   body.noR #rightrail { display: none; }
-  body #center { position: fixed; top: 36px; bottom: 0; left: 0; right: 0; overflow-y: auto; }
+  /* 挂载线条：topbar 之下的独立全局条（目录 | 线 | 地平线），页图与右栏在其下 */
+  #mount { position: fixed; top: 36px; left: 0; right: var(--railw, 252px); height: 186px;
+    display: flex; gap: 12px; padding: 8px 14px 6px; background: var(--paper);
+    border-bottom: 1px solid var(--line); z-index: 18; }
+  body.noR #mount { right: 0; }
+  body #center { position: fixed; top: 230px; bottom: 0; left: 0; right: 0; overflow-y: auto; }
   body:not(.noR) #center { right: var(--railw, 252px); }
 
   #rightrail { right: 0; border-left: 1px solid var(--line); }
   /* 右栏宽度拖拽手柄：中栏与产物栏的分界，用户自调，宽度记进 localStorage */
-  #splitter { position: fixed; top: 62px; bottom: 0; right: var(--railw, 252px); width: 7px;
+  #splitter { position: fixed; top: 230px; bottom: 0; right: var(--railw, 252px); width: 7px;
     margin-right: -3px; z-index: 16; cursor: col-resize; }
   #splitter:hover, #splitter.on { background: rgba(42,42,40,.10); }
   .rail .rh { font-size: 11.5px; color: var(--dim); margin: 4px 0 8px; font-family: ui-monospace, Consolas, monospace; }
@@ -76,31 +81,40 @@
   #curcard.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--hl); }
   #curcard .cmeta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace;
     display: flex; gap: 10px; }
-  /* 挂载线：TuRead 同义——内容挂在线上。上层目录朝上（刻度按层级错高，浅层更高），
-     中层是块点基线；整根线向左错开（约六成宽），右侧下方放最近被标记的条目。
-     窗口锚定页图滚动位置（阅读到哪线跟到哪），裁决游标只是线上的一枚高亮点 */
-  #railwrap { display: flex; gap: 14px; margin: 0 0 6px; }
-  #rail { position: relative; flex: 0 0 62%; height: 52px; }
-  #marked { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; padding-top: 2px; }
-  #marked .mk { font-size: 10.5px; line-height: 1.5; border: 1px solid var(--line); border-radius: 3px;
-    padding: 1px 7px; cursor: pointer; color: var(--dim); max-width: 100%; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap; background: var(--paper); }
-  #marked .mk:hover { color: var(--ink); border-color: var(--dim); }
-  #marked .mk .k { color: var(--accent); font-family: ui-monospace, Consolas, monospace; margin-right: 4px; }
-  #rail .baseline { position: absolute; left: 0; right: 0; bottom: 8px; height: 1px; background: var(--hair); }
-  #rail .pgline { position: absolute; bottom: 8px; width: 1px; height: 18px; background: var(--hair); }
-  #rail .pglabel { position: absolute; bottom: 9px; font-size: 9px; color: var(--dim);
+  /* 挂载线：TuRead 同义——内容挂在线上。左端目录（全书树，可滚动，操作后回位），
+     中段物理线（刻度朝上按层级错高，滚动锚定），右端地平线（下一个结构节点的预告，
+     处理推进时它在刻度上从右往左逐渐接近）。裁决游标只是线上一枚高亮点 */
+  #dir { width: 218px; flex: none; overflow-y: auto; border-right: 1px solid var(--hair); padding-right: 8px; }
+  #dir .di { font-size: 12.5px; line-height: 1.9; padding: 0 6px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; color: #3a372f; }
+  #dir .di:hover { background: var(--paper); }
+  #dir .di.cur { background: var(--hl); color: var(--accent); font-weight: 700; }
+  #dir .di.near { box-shadow: inset 2px 0 0 var(--ok); }
+  #dir .di.lv2 { padding-left: 22px; font-size: 12px; color: var(--dim); }
+  #dir .di.lv3 { padding-left: 38px; font-size: 11.5px; color: var(--dim); }
+  #dir .di .lvk { color: var(--dim); font-size: 10px; font-family: ui-monospace, Consolas, monospace; margin-right: 5px; }
+  #rail { flex: 1; position: relative; min-width: 0; }
+  #rail .baseline { position: absolute; left: 0; right: 0; bottom: 64px; height: 1px; background: var(--hair); }
+  #rail .pgline { position: absolute; bottom: 64px; width: 1px; height: 18px; background: var(--hair); }
+  #rail .pglabel { position: absolute; bottom: 46px; font-size: 9px; color: var(--dim);
     font-family: ui-monospace, Consolas, monospace; transform: translateX(3px); }
-  #rail .rp { position: absolute; bottom: 5.5px; width: 6px; height: 6px; margin-left: -3px;
+  #rail .rp { position: absolute; bottom: 61.5px; width: 6px; height: 6px; margin-left: -3px;
     border-radius: 50%; border: 1px solid var(--dim); background: var(--paper); cursor: pointer; }
   #rail .rp.done { background: var(--ok); border-color: var(--ok); }
-  #rail .rp.fur { width: 4px; height: 4px; margin-left: -2px; bottom: 6.5px; border-color: transparent; background: var(--hair); cursor: default; }
-  #rail .rp.cur { width: 10px; height: 10px; margin-left: -5px; bottom: 3.5px; border: 2px solid var(--accent); background: var(--paper); z-index: 2; }
+  #rail .rp.fur { width: 4px; height: 4px; margin-left: -2px; bottom: 62.5px; border-color: transparent; background: var(--hair); cursor: default; }
+  #rail .rp.cur { width: 10px; height: 10px; margin-left: -5px; bottom: 59.5px; border: 2px solid var(--accent); background: var(--paper); z-index: 2; }
   #rail .rp.cur.done { background: var(--ok); }
-  #rail .tick { position: absolute; bottom: 8px; width: 1px; background: var(--dim); }
-  #rail .tickname { position: absolute; font-size: 9.5px; color: var(--ink); line-height: 1.2;
-    white-space: nowrap; transform: translateX(2px); max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+  #rail .tick { position: absolute; bottom: 64px; width: 1px; background: var(--dim); }
+  #rail .tickname { position: absolute; font-size: 9.5px; color: var(--ink); line-height: 1.25;
+    white-space: nowrap; transform: translateX(2px); max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
   #rail .tickname.lv2 { color: var(--dim); font-size: 9px; }
+  #horizon { width: 168px; flex: none; border-left: 1px solid var(--hair); padding-left: 12px;
+    display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; padding-bottom: 40px; }
+  #horizon .hzl { font-size: 10.5px; color: var(--dim); }
+  #horizon .hzn { font-size: 12.5px; color: var(--ink); cursor: pointer; line-height: 1.4;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  #horizon .hzn:hover { color: var(--accent); }
+  #horizon .hzd { font-size: 10.5px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
   #curcard .cmeta .sp { flex: 1; }
   #curcard .ctxt { font-size: 15px; line-height: 1.75; white-space: pre-wrap; outline: none;
     max-height: 9.5em; overflow-y: auto; margin: 4px 0 6px; }
@@ -126,15 +140,17 @@
   <span class="sp"></span>
   <span class="count" id="counts"></span>
 </div>
+<div id="mount">
+  <div id="dir" title="全书目录：点条目跳转；任何操作后自动回到当前章"></div>
+  <div id="rail" title="挂载线：跟着滚动走 · 实心=已定 · 空心=待校 · 淡点=附着 · 刻度=标题（朝上按层级） · 点它跳转"></div>
+  <div id="horizon" title="地平线：下一个结构节点，处理推进时它会在刻度上从右往左接近"></div>
+</div>
 <div id="splitter" title="拖动调整两侧宽度"></div>
 <button class="railtab" id="tabR" aria-pressed="true">已定</button>
 <div class="rail" id="rightrail"></div>
 <div id="center"><div id="pages"></div></div>
 <div id="curcard">
-  <div id="railwrap">
-    <div id="rail" title="挂载线：跟着滚动走 · 实心=已定 · 空心=待校 · 淡点=附着 · 刻度=标题（朝上按层级） · 点它跳转"></div>
-    <div id="marked" title="最近被标记的条目（标过层级的标题、拉框的素材）"></div>
-  </div>
+
   <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="cmerge" style="color:var(--accent)"></span><span id="ccount"></span></div>
   <div class="ctxt" id="ctext"></div>
   <div class="cacts">
@@ -344,7 +360,7 @@ function replayMirror() {
 }
 
 // ===== 渲染 =====
-function renderAll() { renderChrome(); renderCurrent(); renderDone(); }
+function renderAll() { renderChrome(); renderDir(); renderCurrent(); renderDone(); renderHorizon(); }
 function renderChrome() {
   var q = queue(), d = doneBlocks();
   document.getElementById("counts").textContent = "待校 " + q.length + " · 已定 " + d.length;
@@ -366,7 +382,7 @@ function renderRail() {
   var host = document.getElementById("rail");
   var c = cur();
   railBlocks = [];
-  if (!c) { host.innerHTML = ""; renderMarked(); return; }
+  if (!c) { host.innerHTML = ""; return; }
   // 窗口锚：优先滚动位置（阅读到哪线跟到哪），没有滚动意图时跟当前块
   var anchor = railAnchor || { page: c.page, y0: c.bbox.y0 };
   var P = DATA.pages.length, p0 = Math.min(P - 1, anchor.page - 1), p1 = Math.min(P - 1, anchor.page);
@@ -392,9 +408,9 @@ function renderRail() {
     var blk = blocks[k2].b, y = blocks[k2].y, x = px(y).toFixed(2);
     if (blk.type === "structure" && blk.level) {
       // 目录朝上：刻度按层级错高（浅层更高），章名贴刻度顶——挂在线上的目录树
-      var th = Math.max(8, 34 - (blk.level - 1) * 9);
+      var th = Math.max(10, 52 - (blk.level - 1) * 17);
       html += "<div class='tick' style='left:" + x + "%;height:" + th + "px' title='" + esc(blk.text.slice(0, 20)) + " · L" + blk.level + "（点它选中这一章）'></div>";
-      html += "<div class='tickname" + (blk.level > 1 ? " lv2" : "") + "' style='left:" + x + "%;bottom:" + (9 + th) + "px'>" + esc(blk.text.slice(0, 14)) + "</div>";
+      html += "<div class='tickname" + (blk.level > 1 ? " lv2" : "") + "' style='left:" + x + "%;bottom:" + (65 + th) + "px'>" + disp(blk.text.slice(0, 16)) + "</div>";
       continue; // 结构块以刻度呈现，不再画点
     }
     var st = blk.state === "原文已定" ? " done" : blk.type === "furniture" ? " fur" : "";
@@ -402,40 +418,75 @@ function renderRail() {
     html += "<span class='" + cls + "' style='left:" + x + "%' data-x='" + y + "' title='" + esc(blk.id + " · " + (blk.type === "furniture" ? "附着/弃用" : blk.state)) + "'></span>";
   }
   host.innerHTML = html;
-  renderMarked();
 }
-// 最近被标记的条目：人工标过层级的标题、拉框 declare 的素材——线下方右侧的便签。
-// 双源：本会话的裁决日志（history 由回放器落账，会话内标的不在那）+ 已回放进 history 的。
-function renderMarked() {
-  var host = document.getElementById("marked");
-  if (!host) return;
-  var ids = [];
-  function add(id) { if (id && ids.indexOf(id) < 0) ids.push(id); }
-  for (var i = state.log.length - 1; i >= 0; i--) {
-    var a = state.log[i];
-    if (a.action === "structure" || a.action === "declare") add(a.block);
+// 左端目录：全书结构树（可滚动看全，任何操作后自动回到当前章——导航责任在这里）
+function dirEntries() { // 书序的结构块（含未标层级的也入列，标了才算树）
+  var out = [];
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var b = DATA.blocks[i];
+    if (b.type === "structure" && b.level) out.push(b);
   }
-  for (var k = 0; k < DATA.blocks.length; k++) {
-    var b0 = DATA.blocks[k];
-    for (var j = 0; j < b0.history.length; j++) {
-      var h = b0.history[j];
-      if (h.by === "human:workbench" && (h.action === "structure" || h.action === "declare")) add(b0.id);
-    }
-  }
-  var chips = [];
-  for (var m = 0; m < ids.length && chips.length < 4; m++) {
-    var b = blockById(ids[m]);
-    if (!b || b.absorbedInto) continue;
-    var kk = b.type === "asset" ? "素材" : "L" + b.level;
-    chips.push("<span class='mk' data-id='" + b.id + "' title='" + esc(b.id + " · 点击选中") + "'><span class='k'>" + kk + "</span>" + esc((b.text || "（无文字）").slice(0, 12)) + "</span>");
-  }
-  host.innerHTML = chips.join("") || "<span style='font-size:10.5px;color:var(--dim)'>尚无标记 —— H 标层级、A 拉素材后会出现在这里</span>";
+  return out;
 }
-document.getElementById("marked").addEventListener("click", function (e) {
-  var mk = e.target.closest(".mk");
-  if (!mk || state.editing) return;
-  var blk = blockById(mk.getAttribute("data-id"));
-  if (blk) { state.focus = blk; renderAll(); }
+function currentDirBlock() { // 当前所属结构块：游标/焦点之前最近的一个
+  var c = cur();
+  if (!c) return null;
+  var best = null, bestY = -1, cy = physY(c);
+  var es = dirEntries();
+  for (var i = 0; i < es.length; i++) {
+    var y = physY(es[i]);
+    if (y <= cy && y > bestY) { bestY = y; best = es[i]; }
+  }
+  return best;
+}
+function nextStructAfter(b) { // 地平线：b 之后的下一个结构节点（书序最近）
+  if (!b) return null;
+  var i = DATA.blocks.indexOf(b);
+  for (var k = i + 1; k < DATA.blocks.length; k++) {
+    var x = DATA.blocks[k];
+    if (!x.absorbedInto && x.type === "structure" && x.level) return x;
+  }
+  return null;
+}
+function renderDir() {
+  var host = document.getElementById("dir");
+  var es = dirEntries(), curDir = currentDirBlock(), nxt = nextStructAfter(cur());
+  if (!es.length) { host.innerHTML = "<div style='font-size:11px;color:var(--dim);padding:4px 6px'>目录空 —— 选中标题块按 H 标层级</div>"; return; }
+  var html = "";
+  for (var i = 0; i < es.length; i++) {
+    var b = es[i];
+    var cls = "di lv" + Math.min(3, b.level) + (b === curDir ? " cur" : "") + (b === nxt ? " near" : "");
+    html += "<div class='" + cls + "' data-id='" + b.id + "' title='" + disp(b.text.slice(0, 30)) + " · p" + b.page + (b === nxt ? " · 下一节点" : "") + "'><span class='lvk'>L" + b.level + "</span>" + disp(b.text.slice(0, 18)) + "</div>";
+  }
+  host.innerHTML = html;
+  // 任何操作后回到当前位置：当前章对齐到目录可视区上部
+  var curEl = host.querySelector(".di.cur");
+  if (curEl) host.scrollTop = Math.max(0, curEl.offsetTop - host.clientHeight / 3);
+}
+document.getElementById("dir").addEventListener("click", function (e) {
+  var it = e.target.closest(".di");
+  if (!it || state.editing) return;
+  var blk = blockById(it.getAttribute("data-id"));
+  if (!blk) return;
+  state.focus = blk; // 选中这一章本身；想校它下面的块就 J/K 或点线上的点
+  renderAll();
+  if (PAGES[blk.page]) PAGES[blk.page].img.scrollIntoView({ block: "start" });
+});
+// 右端：线上高亮节点的放大镜——高亮是谁，这里就是谁（当前选中/即将裁决的块）
+function renderHorizon() {
+  var host = document.getElementById("horizon");
+  var c = cur();
+  if (!c) { host.innerHTML = "<div class='hzl'>当前节点</div><div class='hzn' style='color:var(--dim);cursor:default'>—</div>"; return; }
+  var k = c.type === "structure" && c.level ? "L" + c.level : c.type === "asset" ? "素材" : c.type === "furniture" ? "附着" : c.type;
+  host.innerHTML = "<div class='hzl'>当前节点 · " + k + "</div>"
+    + "<div class='hzn' title='" + esc(c.id + " · 点击回到它") + "'>" + disp((c.text || "（无文字）").slice(0, 40)) + "</div>"
+    + "<div class='hzd'>" + c.id + " · p" + c.page + "</div>";
+}
+document.getElementById("horizon").addEventListener("click", function (e) {
+  var n = e.target.closest(".hzn");
+  if (!n || !n.getAttribute("data-id") || state.editing) return;
+  var blk = blockById(n.getAttribute("data-id"));
+  if (blk) { state.focus = blk; renderAll(); if (PAGES[blk.page]) PAGES[blk.page].img.scrollIntoView({ block: "center" }); }
 });
 // 页图滚动 → 线的窗口跟着走（防抖；点击/裁决引起的程序滚动也走这里，天然同步）。
 // 换算走物理映射（缩放比 × 文档 y），不信任 lazy 未加载页的 DOM 高度。
@@ -532,6 +583,9 @@ function restorePos() {
     if (q[i].page > blk.page || (q[i].page === blk.page && q[i].bbox.y0 > blk.bbox.y0)) { state.idx = i; break; }
 }
 function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function disp(s) { // 展示用：文本层里映射不出的字形（控制符/私用区）以 □ 示形，提示"此处不可读"
+  return esc((s || "").replace(/[\u0000-\u001f\u007f-\u009f\uE000-\uF8FF\uFFFD]/g, "\u25a1"));
+}
 function placeCaretEnd(el) {
   var r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
   var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
