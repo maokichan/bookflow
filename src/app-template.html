@@ -381,11 +381,15 @@ async function togglePrepPanel(id) {
         <div class="row" style="margin-top:auto">
           <button class="ta" id="fx-draw">标区域</button>
         </div>
+        <div>
+          <div style="font-size:12.5px;color:var(--dim);margin-bottom:4px">已标横带（点 ✕ 删除）</div>
+          <div id="band-list" style="font-size:12px;line-height:2;color:var(--ink)"></div>
+        </div>
         <div class="row">
           <button class="ta" id="fx-refresh">刷新采样</button>
           <button class="ta acc" id="fx-confirm">确定预处理</button>
         </div>
-        <div style="font-size:11.5px;color:var(--dim)">在采样图上纵向拖一条横带，标为页眉或页脚；全书生效</div>
+        <div style="font-size:11.5px;color:var(--dim)">在采样图上纵向拖一条横带，标为页眉或页脚；全书生效；新带与旧带重叠时替换旧带</div>
       </div>
     </div>`;
   main.appendChild(panel);
@@ -408,9 +412,23 @@ async function togglePrepPanel(id) {
       const all = ghost ? bands.concat([ghost]) : bands.slice();
       for (const bd of all) {
         const o = document.createElement("div");
-        o.style.cssText = `position:absolute;left:0;right:0;top:${bd.y0 * 100}%;height:${(bd.y1 - bd.y0) * 100}%;pointer-events:none;background:${bd.kind === "footer" ? "rgba(74,124,89,.25)" : "rgba(180,85,45,.25)"};border-top:1.5px dashed ${bd.kind === "footer" ? "#4a7c59" : "#b4552d"};border-bottom:1.5px dashed ${bd.kind === "footer" ? "#4a7c59" : "#b4552d"}`;
+        o.style.cssText = `position:absolute;left:0;right:0;top:${bd.y0 * 100}%;height:${(bd.y1 - bd.y0) * 100}%;pointer-events:none;background:${bd.kind === "footer" ? "rgba(74,124,89,.25)" : bd.kind === "header" ? "rgba(180,85,45,.25)" : "rgba(42,42,40,.14)"};border-top:1.5px dashed ${bd.kind === "footer" ? "#4a7c59" : "#b4552d"};border-bottom:1.5px dashed ${bd.kind === "footer" ? "#4a7c59" : "#b4552d"}`;
         el.appendChild(o);
       }
+    });
+    renderBandList();
+  };
+  const renderBandList = () => { // 已标横带列表：可删；重叠的新带会替换旧带，这里让人看得见现状
+    const host = panel.querySelector("#band-list");
+    if (!host) return;
+    if (!bands.length) { host.innerHTML = "<span style='color:var(--dim)'>尚无</span>"; return; }
+    host.innerHTML = bands.map((bd, i) =>
+      `<div style="display:flex;align-items:center;gap:8px">
+        <span style="color:${bd.kind === "footer" ? "#4a7c59" : "#b4552d"};width:34px">${bd.kind === "footer" ? "页脚" : "页眉"}</span>
+        <span style="flex:1">${Math.round(bd.y0 * 100)}% – ${Math.round(bd.y1 * 100)}%</span>
+        <button class="ta" data-del="${i}" style="color:#a8322a">✕</button></div>`).join("");
+    host.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.onclick = () => { bands.splice(Number(btn.dataset.del), 1); drawBands(); };
     });
   };
   let bandPopup = null, popupHooks = null;
@@ -484,7 +502,13 @@ async function togglePrepPanel(id) {
       bandPopup.innerHTML = `<button class="ta" data-k="header">这条是页眉</button><button class="ta" data-k="footer">这条是页脚</button><button class="ta" data-k="x">取消</button>`;
       document.body.appendChild(bandPopup);
       bandPopup.querySelectorAll("button").forEach((b) => b.onclick = () => {
-        if (b.dataset.k !== "x") { band.kind = b.dataset.k; bands.push(band); }
+        if (b.dataset.k !== "x") {
+          band.kind = b.dataset.k;
+          // 重叠替换：新带与旧带纵向相交即视为同一区域的重新标注，旧带移除
+          for (let i = bands.length - 1; i >= 0; i--)
+            if (bands[i].y0 < band.y1 && bands[i].y1 > band.y0) bands.splice(i, 1);
+          bands.push(band);
+        }
         closeBandPopup();
       });
       const onDoc = (ev) => { if (bandPopup && !bandPopup.contains(ev.target)) closeBandPopup(); };

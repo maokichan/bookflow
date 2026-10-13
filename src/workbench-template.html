@@ -82,6 +82,17 @@
   #curcard.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--hl); }
   #curcard .cmeta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace;
     display: flex; gap: 10px; }
+  /* 示意线：全书块一串点，当前点居中；实心=已定原文，淡点=附着/弃用，空心=待校 */
+  #rail { display: flex; align-items: center; justify-content: center; gap: 2px; height: 14px;
+    margin: 0 0 5px; overflow: hidden; }
+  #rail .rp { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--dim);
+    flex: none; cursor: pointer; background: var(--paper); }
+  #rail .rp.done { background: var(--ok); border-color: var(--ok); }
+  #rail .rp.fur { width: 4px; height: 4px; border-color: transparent; background: var(--hair); cursor: default; }
+  #rail .rp.cur { width: 10px; height: 10px; border: 2px solid var(--accent); background: var(--paper); }
+  #rail .rp.cur.done { background: var(--ok); } /* 当前块已盖章：实心 + 高亮圈 */
+  #rail .rp.cur.fur { width: 8px; height: 8px; background: var(--hair); }
+  #rail .re { color: var(--dim); font-size: 10px; flex: none; }
   #curcard .cmeta .sp { flex: 1; }
   #curcard .ctxt { font-size: 15px; line-height: 1.75; white-space: pre-wrap; outline: none;
     max-height: 9.5em; overflow-y: auto; margin: 4px 0 6px; }
@@ -112,6 +123,7 @@
 <div class="rail" id="rightrail"></div>
 <div id="center"><div id="pages"></div></div>
 <div id="curcard">
+  <div id="rail" title="全书块示意线：实心=已定 · 空心=待校 · 淡点=附着/弃用 · 点它跳转"></div>
   <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="cmerge" style="color:var(--accent)"></span><span id="ccount"></span></div>
   <div class="ctxt" id="ctext"></div>
   <div class="cacts">
@@ -243,6 +255,15 @@ function doUndo() {
   if (state.editing) return;
   var u = state.undoStack.pop();
   if (!u) { toast("没有可撤销的裁决"); return; }
+  if (u.combined) { // 组合动作（如清空结构）：逆序逐条回退
+    for (var i = 0; i < u.combined.length; i++) {
+      var c0 = u.combined[i], cb = blockById(c0.blockId);
+      if (cb) applyAndLog(c0.action, cb, c0.payload);
+    }
+    state.redoStack.push(u); saveUndo(); renderAll();
+    toast("已撤销（" + u.combined.length + " 条）");
+    return;
+  }
   var b = blockById(u.blockId);
   if (!b) { state.undoStack = []; saveUndo(); toast("块 " + u.blockId + " 已不在图中，撤销栈已清"); return; }
   applyAndLog(u.action, b, u.payload);
@@ -255,6 +276,15 @@ function doRedo() {
   if (state.editing) return;
   var r = state.redoStack.pop();
   if (!r) { toast("没有可重做的裁决"); return; }
+  if (r.combined) {
+    for (var i = r.combined.length - 1; i >= 0; i--) {
+      var c1 = r.combined[i], cb1 = blockById(c1.blockId);
+      if (cb1) applyAndLog(c1.action, cb1, c1.payload);
+    }
+    state.undoStack.push(r); saveUndo(); renderAll();
+    toast("已重做（" + r.combined.length + " 条）");
+    return;
+  }
   var b = blockById(r.blockId);
   if (!b) { state.redoStack = []; saveUndo(); toast("块 " + r.blockId + " 已不在图中，重做栈已清"); return; }
   applyAndLog(r.action, b, r.payload);
@@ -262,6 +292,18 @@ function doRedo() {
   saveUndo();
   renderAll();
   toast("已重做：" + r.action);
+}
+// 组合动作：批量改动一笔进撤销栈（逆动作整体入栈，Ctrl+Z 一次全回退）
+function pushCombined(actions) {
+  var inverses = [];
+  for (var i = actions.length - 1; i >= 0; i--) {
+    var a = actions[i];
+    inverses.push(computeInverse(a.action, a.block, a.payload));
+  }
+  for (var j = 0; j < actions.length; j++) applyAndLog(actions[j].action, actions[j].block, actions[j].payload);
+  state.undoStack.push({ combined: inverses });
+  state.redoStack = [];
+  saveUndo();
 }
 // 镜像日志重放（与回放器同规则，非法则跳过）
 function replayMirror() {
@@ -297,6 +339,52 @@ function renderChrome() {
   document.getElementById("counts").textContent = "待校 " + q.length + " · 已定 " + d.length;
   document.getElementById("tabR").textContent = "已定 · " + d.length;
   document.getElementById("tabL").textContent = "结构 · " + DATA.blocks.filter(function (b) { return b.type === "structure" && b.level; }).length;
+  renderRail();
+}
+// 示意线：全书未吸收块按书序一串点，当前点居中；已定实心、附着淡点、待校空心；点它跳转
+function renderRail() {
+  var host = document.getElementById("rail");
+  var all = DATA.blocks.filter(function (b) { return !b.absorbedInto; });
+  var c = cur();
+  var ci = c ? all.indexOf(c) : -1;
+  if (ci < 0) { host.innerHTML = ""; return; }
+  var W = 64, s = Math.max(0, ci - W), e = Math.min(all.length, ci + W + 1);
+  var html = s > 0 ? "<span class='re'>…</span>" : "";
+  for (var i = s; i < e; i++) {
+    var b = all[i];
+    var st = b.state === "原文已定" ? " done" : b.type === "furniture" ? " fur" : "";
+    var cls = "rp" + (i === ci ? " cur" + st : st);
+    html += "<span class='" + cls + "' data-i='" + i + "' title='" + esc(b.id + " · " + (b.type === "furniture" ? "附着/弃用" : b.state)) + "'></span>";
+  }
+  if (e < all.length) html += "<span class='re'>…</span>";
+  host.innerHTML = html;
+}
+document.getElementById("rail").addEventListener("click", function (e) {
+  var p = e.target.closest(".rp");
+  if (!p || state.editing) return;
+  var all = DATA.blocks.filter(function (b) { return !b.absorbedInto; });
+  var b = all[Number(p.getAttribute("data-i"))];
+  if (!b) return;
+  var idx = queue().findIndex(function (x) { return x.id === b.id; });
+  if (idx >= 0) { state.focus = null; state.idx = idx; }
+  else state.focus = b;
+  renderAll();
+});
+// 队列位置记忆：重开工作台回到上次校到处（块已定/被吸收则退到书序下一个待校块）
+function savePos() {
+  try { localStorage.setItem(logKey() + ":pos", cur() ? cur().id : ""); } catch (e) {}
+}
+function restorePos() {
+  var id;
+  try { id = localStorage.getItem(logKey() + ":pos"); } catch (e) {}
+  if (!id) return;
+  var q = queue();
+  var idx = q.findIndex(function (b) { return b.id === id; });
+  if (idx >= 0) { state.idx = idx; return; }
+  var blk = blockById(id);
+  if (!blk) return;
+  for (var i = 0; i < q.length; i++)
+    if (q[i].page > blk.page || (q[i].page === blk.page && q[i].bbox.y0 > blk.bbox.y0)) { state.idx = i; break; }
 }
 function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function placeCaretEnd(el) {
@@ -334,6 +422,7 @@ function renderCurrent() {
   }
   updateSelection();
   centerSelection();
+  savePos();
 }
 function renderDone() {
   var d = doneBlocks(); // 书序即数组序
@@ -368,7 +457,7 @@ function renderOutline() {
     html += "<div class='ol-item lv" + Math.max(1, t.level || 1) + "' data-id='" + t.id + "'>"
       + esc(t.text.slice(0, 20)) + "<span class='opg'>" + t.page + " · " + (counts[t.id] ?? 0) + "块</span></div>";
   }
-  host.innerHTML = "<div class='rh'>结构 · 括号内为归属块数</div>" + html;
+  host.innerHTML = "<div class='rh'>结构 · 括号内为归属块数 · <button class='ta' id='clear-struct'>清空结构</button></div>" + html;
 }
 
 // ===== 动作实现 =====
@@ -399,13 +488,14 @@ function joinPara(a, b) {
   var cjkR = /[\u3000-\u9fff\uf900-\ufaff\u3040-\u30ff《「『【〈“‘(（]/.test(d[0]);
   return (cjkL || cjkR) ? c + d : c + " " + d;
 }
-// 与 doMerge 同一判定的"下一可拼合块"：页图上画虚线框预览，M 之前看得见要拼什么
+// 与 doMerge 同一判定的"下一可拼合块"：中间可隔着附着/素材/注释块（跨页、隔图注是常态），
+// 只挡未吸收的流转块与结构块——隔段落、隔标题不在语义内。页图上画虚线框预览。
 function nextMergeable(b) {
   if (b.type !== "flow") return null;
   var idx = DATA.blocks.indexOf(b);
   for (var i = idx + 1; i < DATA.blocks.length; i++) {
     var n = DATA.blocks[i];
-    if (n.type === "furniture" || n.absorbedInto) continue;
+    if (n.absorbedInto || n.type === "furniture" || n.type === "asset" || n.type === "annotation") continue;
     return (n.type === "flow" && n.state === "typed") ? n : null;
   }
   return null;
@@ -609,24 +699,27 @@ function drawRect(pg, blk, cls) { // 在页 pg 上画块 blk 的框（cls 追加
 function updateSelection() {
   for (var i = 1; i < PAGES.length; i++) { PAGES[i].bbox.innerHTML = ""; PAGES[i].bbox.style.display = "none"; }
   var b = cur();
+  state.curRect = null; // 主框引用：居中滚动的锚点
   if (!b) return;
   var chain = [b].concat(absorbedBy(b)); // 主块 + 链上成员，每页各画各的框
   for (var c = 0; c < chain.length; c++) {
     var blk = chain[c];
     if (PAGES[blk.page]) { drawRect(PAGES[blk.page], blk, ""); PAGES[blk.page].bbox.style.display = "block"; }
   }
+  if (PAGES[b.page]) state.curRect = PAGES[b.page].bbox.querySelector(".brect"); // 主块本页的框
   var next = nextMergeable(b); // 下一可拼合块：虚线预览，拼前看得见
   if (next && PAGES[next.page]) { drawRect(PAGES[next.page], next, "next"); PAGES[next.page].bbox.style.display = "block"; }
 }
 function centerSelection() {
-  // 让位居中：选中块的主框对齐到「底部容器以上」可视区的中心，永不被容器盖住
-  var b = cur();
-  if (!(b && PAGES[b.page] && PAGES[b.page].bbox.style.display === "block")) return;
-  var pane = center(), box = PAGES[b.page].bbox;
+  // 让位居中：以选中块的主框（不是整页）对齐可视区中心，切换块时目光不丢
+  var box = state.curRect;
+  if (!(box && box.style.display !== "none")) return;
+  var pane = center();
   var cardH = document.getElementById("curcard").offsetHeight + 40;
   var zoneH = Math.max(160, pane.clientHeight - 36 - cardH);
-  var rel = box.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
-  pane.scrollTop = Math.max(0, rel - zoneH / 2 + box.offsetHeight / 2);
+  var rel = box.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop
+    + box.offsetHeight / 2;
+  pane.scrollTop = Math.max(0, rel - zoneH / 2);
 }
 function center() { return document.getElementById("center"); }
 
@@ -742,6 +835,26 @@ function wireRailTab(id, cls) {
 wireRailTab("tabL", "noL");
 wireRailTab("tabR", "noR");
 document.getElementById("leftrail").addEventListener("click", function (e) {
+  var clearBtn = e.target.closest("#clear-struct");
+  if (clearBtn) { // 清空结构：全部结构块回流转（批量动作一笔撤销）；两步确认
+    if (clearBtn.dataset.armed !== "1") {
+      clearBtn.dataset.armed = "1";
+      clearBtn.textContent = "确认清空？";
+      setTimeout(function () { clearBtn.dataset.armed = ""; clearBtn.textContent = "清空结构"; }, 4000);
+      return;
+    }
+    clearBtn.dataset.armed = "";
+    var acts = [];
+    for (var i = 0; i < DATA.blocks.length; i++) {
+      var sb = DATA.blocks[i];
+      if (sb.type === "structure") acts.push({ action: "reclassify", block: sb, payload: { type: "flow", level: null, role: null } });
+    }
+    if (!acts.length) { toast("没有结构块"); return; }
+    pushCombined(acts);
+    renderAll();
+    toast("已清空 " + acts.length + " 个结构块（Ctrl+Z 整体回退）");
+    return;
+  }
   var it = e.target.closest(".ol-item");
   if (!it || state.editing) return;
   var id = it.getAttribute("data-id");
@@ -764,7 +877,7 @@ document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
     if (k === "g") doGate(false);
     else if (k === "e") { if (cur()) { state.editing = true; renderCurrent(); } }
     else if (k === "h") { if (cur()) { state.levelMode = true; showRoleSuggest(); } }
-    else if (k === "t") { state.typeMode = true; modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）"); }
+    else if (k === "t") { state.typeMode = true; modebar("改型 → 1 正文 · 2 标题 · 3 弃用(附着) · 4 注释 · 5 素材 · 6 未分型 （Esc 取消）"); }
     else if (k === "m") doMerge();
     else if (k === "a") toggleAssetMode();
     else if (k === "undo") doUndo();
@@ -848,7 +961,7 @@ document.addEventListener("keydown", function (e) {
     case "a": e.preventDefault(); toggleAssetMode(); break;
     case "t": {
       state.typeMode = true;
-      modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）");
+      modebar("改型 → 1 正文 · 2 标题 · 3 弃用(附着) · 4 注释 · 5 素材 · 6 未分型 （Esc 取消）");
       break;
     }
     case "h": {
@@ -870,6 +983,7 @@ document.addEventListener("keydown", function (e) {
 document.getElementById("title").textContent = DATA.title + " —— 原文校对";
 replayMirror();
 loadUndo();
+restorePos();
 buildPages();
 renderAll();
 </script>

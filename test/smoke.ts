@@ -85,6 +85,31 @@ for (let i = 0; i < g.blocks.length - 2; i++) {
 }
 const merged1 = joinParaText(mSrc.text, mTgt1.text);
 const merged2 = joinParaText(merged1, mTgt2.text);
+// 相邻拼合样本（隔物路径由链样本的"隔着已吸收块"覆盖：回放器对中间块的放行条件是同一条）
+let fSrc: any, fTgt: any;
+for (let i = 0; i < g.blocks.length - 1; i++) {
+  const a = g.blocks[i], c = g.blocks[i + 1];
+  if (a.type === "flow" && c.type === "flow" && a.state === "typed" && c.state === "typed"
+    && ![a.id, c.id].some((id) => [flow1.id, flow2.id, quote.id, mSrc.id, mTgt1.id, mTgt2.id].includes(id))) {
+    fSrc = a; fTgt = c; break;
+  }
+}
+const fMerged = joinParaText(fSrc.text, fTgt.text);
+// 非法：两流转块之间存在未吸收正文/标题，不可跨越拼合（间隔不限）
+let xSrc: any, xTgt: any;
+const usedIds = [flow1.id, flow2.id, quote.id, mSrc.id, mTgt1.id, mTgt2.id, fSrc.id, fTgt.id];
+outer:
+for (let i = 0; i < g.blocks.length - 1; i++) {
+  const a = g.blocks[i];
+  if (a.type !== "flow" || a.state !== "typed" || usedIds.includes(a.id)) continue;
+  let mid: any = null, c: any = null;
+  for (let j = i + 1; j < g.blocks.length; j++) {
+    const x = g.blocks[j];
+    if (!mid && x.type === "flow" && !x.absorbedInto) mid = x;
+    else if (mid && x.type === "flow" && !x.absorbedInto && !usedIds.includes(x.id)) { c = x; break; }
+  }
+  if (mid && c && !usedIds.includes(mid.id)) { xSrc = a; xTgt = c; break outer; }
+}
 // 素材块：手造一个合法 bbox（页 1 版心内）
 const assetId = "p01-a000";
 const assetBBox = { x0: 60, y0: 200, x1: 300, y1: 400 };
@@ -94,7 +119,9 @@ const logLines = [
   { ts: now(), block: flow2.id, action: "edit", payload: { text: editedText } },
   { ts: now(), block: quote.id, action: "reclassify", payload: { type: "untyped" } },
   { ts: now(), block: mSrc.id, action: "merge", payload: { absorb: mTgt1.id } },
-  { ts: now(), block: mSrc.id, action: "merge", payload: { absorb: mTgt2.id } }, // 隔着已吸收块 → 新规则放行
+  { ts: now(), block: mSrc.id, action: "merge", payload: { absorb: mTgt2.id } }, // 隔着已吸收块 → 放行
+  { ts: now(), block: fSrc.id, action: "merge", payload: { absorb: fTgt.id } }, // 隔着附着块 → 放行
+  { ts: now(), block: xSrc.id, action: "merge", payload: { absorb: xTgt.id } }, // 隔着正文 → 拒绝
   { ts: now(), block: mSrc.id, action: "unmerge", payload: { absorb: mTgt2.id, text: merged1, bbox: mSrc.bbox } },
   { ts: now(), block: mSrc.id, action: "unmerge", payload: { absorb: mTgt1.id, text: mSrc.text, bbox: mSrc.bbox } },
   { ts: now(), block: assetId, action: "declare", payload: { block: { id: assetId, page: 1, bbox: assetBBox, type: "asset", state: "typed", text: "" } } },
@@ -120,7 +147,11 @@ ok(!g2.blocks.some((b) => b.id === assetId), "素材块已随撤标移除");
 ok(mS2.text === mSrc.text && JSON.stringify(mS2.bbox) === JSON.stringify(mSrc.bbox),
   `${mSrc.id} 两轮拼合+两轮撤销后文本与框完全复原`);
 ok(mT1.absorbedInto === undefined && !mTgt1.absorbedInto && !mTgt2.absorbedInto, "被吸收块均已恢复独立");
-ok(r.stdout.toString().includes("拒绝 1"), "非法动作被拒（重复盖章）");
+const fS2 = g2.blocks.find((b) => b.id === fSrc.id)!;
+const fi = g2.blocks.indexOf(fS2), ti = g2.blocks.findIndex((b) => b.id === fTgt.id);
+const midOk = g2.blocks.slice(fi + 1, ti).every((b) => !b.absorbedInto || b.type === "furniture");
+ok(fS2.text === fMerged, `相邻拼合生效（${fSrc.id} ⊕ ${fTgt.id}）`);
+ok(r.stdout.toString().includes("拒绝 2"), "非法动作被拒（跨正文拼合 + 重复盖章）");
 ok(existsSync(path.join(P.processed, logName)), "信封日志归档到 processed/");
 
 console.log("▶ 4.5/5 信封验签：篡改日志整份拒收");

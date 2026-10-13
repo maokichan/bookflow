@@ -105,7 +105,9 @@ for (const f of logs) {
       b.level = a.payload.level;
       b.role = a.payload.role;
     } else if (a.action === "merge") {
-      // 拼合：b 吸收 payload.absorb 指向的块（同类型、书序相邻——附着块与已吸收块可隔着——未被吸收过才放行）
+      // 拼合：b 吸收 payload.absorb 指向的块。中间允许隔着附着/素材/注释块（跨页、隔图注的段落
+      // 是常态），只挡未吸收的流转块与结构块——隔段落、隔标题拼合不在语义内。
+      // 文本只连接首尾两块，中间块原样保留，不并入。
       const target = findBlock(g, a.payload?.absorb);
       if (!target) { report.rejected.push(`${where} ${b.id} 吸收目标不存在`); continue; }
       if (target.absorbedInto) { report.rejected.push(`${where} ${target.id} 已被 ${target.absorbedInto} 吸收`); continue; }
@@ -114,8 +116,8 @@ for (const f of logs) {
       }
       const ai = g.blocks.indexOf(b), bi = g.blocks.indexOf(target);
       if (ai < 0 || bi <= ai) { report.rejected.push(`${where} 拼合目标须在书序之后`); continue; }
-      if (g.blocks.slice(ai + 1, bi).some((x) => x.type !== "furniture" && !x.absorbedInto)) {
-        report.rejected.push(`${where} ${b.id} 与 ${target.id} 不相邻`); continue;
+      if (g.blocks.slice(ai + 1, bi).some((x) => !x.absorbedInto && (x.type === "flow" || x.type === "structure"))) {
+        report.rejected.push(`${where} ${b.id} 与 ${target.id} 之间夹着正文/标题，不可跨越拼合`); continue;
       }
       b.text = joinParaText(b.text, target.text);
       // 同页拼合框并为一个；跨页块图仍页局部，主块只保本页框（工作台显示层补画附属框）
