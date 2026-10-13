@@ -92,6 +92,11 @@
     <label>密钥</label><input id="c-ocrcloud-key" type="password">
     <label>模型</label><input id="c-ocrcloud-model" type="text">
     <h3>OCR · 本地</h3>
+    <label>模型目录（含 PP-OCRv5 ONNX）</label>
+    <div class="row" style="margin-bottom:8px">
+      <input id="c-ocrlocal-dir" type="text" style="flex:1" placeholder="例：D:\PROJECTookflow	ools\ocr">
+      <button class="ta" id="c-ocrlocal-browse">浏览…</button>
+    </div>
     <label>引擎</label><input id="c-ocrlocal-engine" type="text" placeholder="">
     <h3>LLM</h3>
     <label>接口地址</label><input id="c-llm-url" type="text">
@@ -155,13 +160,17 @@ async function renderShelf() {
   main.innerHTML = "";
 
   const imp = $(`<div class="row" style="margin-bottom:30px">
-    <input type="file" id="f-pdf" accept=".pdf,application/pdf" style="font:inherit;font-size:13px">
-    <input type="text" id="f-title" placeholder="书名" style="width:220px;padding:5px 9px;border:1px solid var(--line);background:var(--paper);font:inherit;font-size:13px">
+    <button class="ta" id="f-pick" style="padding:5px 12px;border:1px solid var(--line);border-radius:4px">选择 PDF 文件</button>
+    <input type="file" id="f-pdf" accept=".pdf,application/pdf" style="display:none">
+    <input type="text" id="f-title" placeholder="书名（选文件后自动填）" style="width:220px;padding:5px 9px;border:1px solid var(--line);background:var(--paper);font:inherit;font-size:13px">
     <button class="ta acc" id="f-go">导入</button></div>`);
+  imp.querySelector("#f-pick").onclick = () => imp.querySelector("#f-pdf").click();
   main.appendChild(imp);
   imp.querySelector("#f-pdf").addEventListener("change", function () {
     const f = this.files[0];
-    if (f && !imp.querySelector("#f-title").value) imp.querySelector("#f-title").value = f.name.replace(/\.pdf$/i, "");
+    if (!f) return;
+    imp.querySelector("#f-pick").textContent = "已选：" + f.name.slice(0, 24);
+    if (!imp.querySelector("#f-title").value) imp.querySelector("#f-title").value = f.name.replace(/\.pdf$/i, "");
   });
   imp.querySelector("#f-go").onclick = async () => {
     try {
@@ -584,7 +593,7 @@ async function deleteBook(id) {
 // ---------- 能力配置（功能层级：OCR 云端/本地、LLM） ----------
 const CFG_FIELDS = [
   ["c-ocrcloud-url", "ocr.cloud.url"], ["c-ocrcloud-key", "ocr.cloud.key"], ["c-ocrcloud-model", "ocr.cloud.model"],
-  ["c-ocrlocal-engine", "ocr.local.engine"],
+  ["c-ocrlocal-dir", "ocr.local.modelDir"], ["c-ocrlocal-engine", "ocr.local.engine"],
   ["c-llm-url", "llm.api.url"], ["c-llm-key", "llm.api.key"], ["c-llm-model", "llm.api.model"],
 ];
 const cfgEl = document.getElementById("cfg");
@@ -599,6 +608,64 @@ document.getElementById("cfgBtn").onclick = async () => {
   } catch (e) { toast(e.message); }
 };
 document.getElementById("cfgClose").onclick = () => (cfgEl.style.display = "none");
+// 模型目录浏览：服务与用户同机，服务端列目录，弹窗逐级点选——路径不必手敲
+document.getElementById("c-ocrlocal-browse").onclick = async () => {
+  const input = document.getElementById("c-ocrlocal-dir");
+  const cur = input.value.trim();
+  const panel = $(`<div style="position:fixed;inset:0;background:rgba(42,42,40,.35);z-index:70">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--paper);border:1px solid var(--line);width:min(560px,92vw);padding:18px 20px">
+      <h3 style="font-size:15px;margin:0 0 10px">选择模型目录</h3>
+      <div id="fs-path" style="font-size:12px;color:var(--dim);font-family:ui-monospace,Consolas,monospace;margin-bottom:8px;word-break:break-all"></div>
+      <div id="fs-list" style="height:280px;overflow-y:auto;border:1px solid var(--line);padding:4px"></div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px">
+        <button class="ta" id="fs-up">上一级</button>
+        <button class="ta" id="fs-here">就选这个目录</button>
+        <button class="ta" id="fs-cancel">取消</button>
+      </div></div></div>`);
+  document.body.appendChild(panel);
+  const list = panel.querySelector("#fs-list");
+  const open = async (path) => {
+    list.textContent = "";
+    try {
+      const j = await api("/api/fs/ls?path=" + encodeURIComponent(path));
+      panel.querySelector("#fs-path").textContent = j.dir || "本机盘符";
+      if (j.models && j.models.length) {
+        const hint = document.createElement("div");
+        hint.style.cssText = "font-size:11px;color:var(--ok);padding:2px 6px";
+        hint.textContent = "模型文件：" + j.models.slice(0, 4).join("、") + (j.models.length > 4 ? " 等" : "");
+        list.appendChild(hint);
+      }
+      for (const d of (j.roots || j.dirs || [])) {
+        const row = document.createElement("div");
+        row.textContent = "▸ " + d;
+        row.style.cssText = "font-size:12.5px;padding:4px 8px;cursor:pointer;word-break:break-all";
+        row.onmouseenter = () => (row.style.background = "var(--paper)");
+        row.onmouseleave = () => (row.style.background = "");
+        row.onclick = () => open(d);
+        list.appendChild(row);
+      }
+      if (!(j.roots || j.dirs || []).length && !(j.models && j.models.length))
+        list.innerHTML = "<div style='font-size:12px;color:var(--dim);padding:6px'>（空目录）</div>";
+    } catch (e) {
+      const err = document.createElement("div");
+      err.style.cssText = "font-size:12px;color:#a8322a;padding:6px";
+      err.textContent = e.message;
+      list.appendChild(err);
+    }
+  };
+  panel.querySelector("#fs-up").onclick = () => {
+    const p = panel.querySelector("#fs-path").textContent;
+    if (!p || /^[A-Za-z]:\\?$/.test(p)) return open("");
+    open(p.replace(/[\\/]([^\\/]+)[\\/]?$/, "") || "");
+  };
+  panel.querySelector("#fs-here").onclick = () => {
+    const p = panel.querySelector("#fs-path").textContent;
+    if (p) input.value = p;
+    panel.remove();
+  };
+  panel.querySelector("#fs-cancel").onclick = () => panel.remove();
+  open(cur);
+};
 document.getElementById("cfgSave").onclick = async () => {
   try {
     const c = await api("/api/config");

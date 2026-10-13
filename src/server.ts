@@ -187,6 +187,32 @@ const server = createServer(async (req, res) => {
       json(res, 200, { ok: true });
       return;
     }
+    const fsLs = p.match(/^\/api\/fs\/ls$/);
+    if (fsLs && req.method === "GET") {
+      // 本机目录浏览（功能层级的配置辅助：模型路径用文件管理器选，不手敲）。
+      // 服务与用户同机，路径口径与导入一致（信任输入，只列目录与模型文件名）。
+      const q = url.searchParams.get("path")?.trim() ?? "";
+      if (!q) {
+        const drives: string[] = [];
+        for (let i = 65; i <= 90; i++) {
+          const d = String.fromCharCode(i) + ":\\";
+          try { if (existsSync(d)) drives.push(d); } catch { /* 无此盘符 */ }
+        }
+        json(res, 200, { roots: drives });
+        return;
+      }
+      const dir = path.resolve(q);
+      if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new UserError(`目录不存在 ${dir}`);
+      let dirs: string[] = [], models: string[] = [];
+      try {
+        dirs = readdirSync(dir, { withFileTypes: true })
+          .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+          .map((d) => path.join(dir, d.name));
+        models = readdirSync(dir).filter((f) => /\.(onnx|txt)$/i.test(f));
+      } catch (e) { throw new UserError(`读不了这个目录 ${dir} —— ${e instanceof Error ? e.message : e}`); }
+      json(res, 200, { dir, dirs, models });
+      return;
+    }
     if (p === "/api/books" && req.method === "POST") {
       json(res, 200, importBook(await readBody(req)));
       return;
@@ -426,7 +452,10 @@ function serveLibrary(rel: string, res: import("node:http").ServerResponse): voi
   if (!full.startsWith(root) || !existsSync(full) || !statSync(full).isFile()) {
     res.writeHead(404); res.end("not found"); return;
   }
-  res.writeHead(200, { "content-type": MIME[path.extname(full)] ?? "application/octet-stream" });
+  res.writeHead(200, {
+    "content-type": MIME[path.extname(full)] ?? "application/octet-stream",
+    "cache-control": "no-store", // 产物随块图推进随时重导，客户端不得缓存旧版
+  });
   res.end(readFileSync(full));
 }
 
