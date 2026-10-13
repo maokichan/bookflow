@@ -31,12 +31,26 @@ const inflightOf = (id: string): Task | undefined =>
 function enqueue(book: string, behavior: string): Task {
   const t: Task = {
     id: `${behavior}-${Date.now()}`, book, behavior,
-    steps: BEHAVIOR_STEPS[behavior] ?? [behavior], stepIdx: 0, status: "queued",
+    steps: stepsFor(book, behavior), stepIdx: 0, status: "queued",
   };
   tasks.unshift(t);
   waiting.push(t);
   pump();
   return t;
+}
+
+// 复合行为的步链按书解析：识别来源=本地时，识别 = 页图 → OCR → 抽取 → 工作台
+// （OCR 吃页图产物，所以渲染先行；文本层来源保持原序，抽取不吃页图）
+function stepsFor(book: string, behavior: string): string[] {
+  if (behavior === "process") {
+    const P = pathsFor(book);
+    try {
+      const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : {};
+      if (params.ocr?.engine === "local") return ["render", "ocr", "extract", "export"];
+    } catch (e) { console.warn(`params.json 损坏（按文本层来源组步）—— ${P.params}`, e); }
+    return BEHAVIOR_STEPS.process;
+  }
+  return BEHAVIOR_STEPS[behavior] ?? [behavior];
 }
 
 function pump(): void {
@@ -154,7 +168,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (p === "/api/home" && req.method === "GET") {
-      json(res, 200, { configured: homeConfigured(), libraryRoot: libraryRoot() });
+      json(res, 200, { configured: homeConfigured(), libraryRoot: libraryRoot(), ocrLocalReady: ocrLocalReady() });
       return;
     }
     if (p === "/api/home" && req.method === "POST") {
@@ -166,13 +180,13 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (p === "/api/books" && req.method === "GET") {
-      const inflight = new Set(tasks.filter((t) => t.status === "queued" || t.status === "running").map((t) => t.book));
+      const inflightMap = new Map(tasks.filter((t) => t.status === "queued" || t.status === "running").map((t) => [t.book, t.behavior]));
       json(res, 200, loadRegistry().filter((m) => !m.deletedAt).map((m) => {
         const P = pathsFor(m.id);
         const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
         const g = loadGraphSoft(P.graph);
         const st = deriveStage(m.id, g);
-        return { ...m, stage: st, progress: progress(m.id, st), params, inflight: inflight.has(m.id), acts: bookActs(m.id, g) };
+        return { ...m, stage: st, progress: progress(m.id, st), params, inflight: inflightMap.has(m.id), inflightBehavior: inflightMap.get(m.id) ?? null, acts: bookActs(m.id, g) };
       }));
       return;
     }
@@ -295,7 +309,10 @@ const server = createServer(async (req, res) => {
       const fx = { contrast: stored.contrast ?? 100, denoise: stored.denoise ?? 0, sharpen: stored.sharpen ?? 0 };
       const next = { ...stored, ...fx, confirmedAt: new Date().toISOString(), fxHash: fxHash(fx) };
       writeFileSync(P.params, JSON.stringify(next, null, 2), "utf-8");
-      enqueue(id, "reprocess");
+      // 行为表执法（TODO 反馈哑一节的「绕过行为表」）：块图未就绪时不排注定失败的重渲，
+      // 只重出页图——页图集合即预处理产物，工作台导出等识别后再说
+      const v = verdictFor(id, "reprocess", { graph: loadGraphSoft(P.graph) });
+      enqueue(id, v.ok ? "reprocess" : "render");
       json(res, 200, next);
       return;
     }
@@ -443,6 +460,20 @@ const server = createServer(async (req, res) => {
 
 function findBook(id: string): BookMeta | undefined {
   return loadRegistry().find((b) => b.id === id);
+}
+
+// 本地 OCR 就绪：能力配置指了模型目录，或项目自带 tools/ocr（机器资产，本地自备）
+function ocrLocalReady(): boolean {
+  let dir: string | null = null;
+  try {
+    dir = existsSync(CONFIG()) ? (JSON.parse(readFileSync(CONFIG(), "utf-8"))?.ocr?.local?.modelDir ?? null) : null;
+  } catch (e) { dir = null; }
+  const d = dir || path.join(ROOT, "tools", "ocr");
+  try {
+    const files = readdirSync(d);
+    return files.some((f) => /det.*\.onnx$/i.test(f)) && files.some((f) => /rec.*\.onnx$/i.test(f))
+      && files.some((f) => /dict.*\.txt$/i.test(f));
+  } catch (e) { return false; }
 }
 
 // 静态：只服务 library/ 内的文件（页图、工作台），防目录穿越
