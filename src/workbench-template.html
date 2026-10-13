@@ -33,17 +33,45 @@
   .rail { position: fixed; top: 62px; bottom: 0; width: var(--railw, 252px); z-index: 15;
     background: var(--desk); overflow-y: auto; padding: 10px 12px 120px; }
   body.noR #rightrail { display: none; }
-  /* 挂载线条：topbar 之下的独立全局条（目录 | 线 | 地平线），页图与右栏在其下 */
-  #mount { position: fixed; top: 36px; left: 0; right: var(--railw, 252px); height: 186px;
-    display: flex; gap: 12px; padding: 8px 14px 6px; background: var(--paper);
-    border-bottom: 1px solid var(--line); z-index: 18; }
-  body.noR #mount { right: 0; }
-  body #center { position: fixed; top: 230px; bottom: 0; left: 0; right: 0; overflow-y: auto; }
+  /* 挂载线（2026-10-14 用户定）：不是容器，是一根线——全局元素，左对齐（距左缘一段距离），
+     长度上限 60% 视宽，不随页面/右栏宽度走；页图直接顶到线下滚动（无预留带），线与点刻浮在内容上。
+     线本体 = 左中右三段 border-top 拼出的一条 1px 横线，无背景无盒壳；
+     左段点线收放目录、右段点线收放当前节点，中段承载点与刻度；结构标定后，
+     线的右端点 = 下一章/下一节（下一结构节点） */
+  #linezone { position: fixed; top: 100px; left: 48px; width: 60vw; z-index: 18;
+    height: 26px; display: flex; pointer-events: none; }
+  #linezone .lz-seg { flex: none; width: 220px; pointer-events: auto; background: none; border: 0;
+    border-top: 1px solid var(--dim); opacity: .5; cursor: pointer; transition: opacity 200ms ease-out; }
+  #linezone .lz-seg:hover { opacity: 1; }
+  #lineSpan { flex: 1; min-width: 0; position: relative; border-top: 1px solid var(--dim); pointer-events: none; }
+  #lineSpan .pgline { position: absolute; top: -19px; width: 1px; height: 18px; background: var(--hair); }
+  #lineSpan .pglabel { position: absolute; top: 4px; font-size: 9px; color: var(--dim);
+    font-family: ui-monospace, Consolas, monospace; transform: translateX(3px);
+    background: rgba(250,249,246,.85); padding: 0 3px; } /* 内容从线下滚过，页码垫一点纸色保可读 */
+  #lineSpan .rp { position: absolute; top: -3.5px; width: 6px; height: 6px; margin-left: -3px;
+    border-radius: 50%; border: 1px solid var(--dim); background: var(--paper); cursor: pointer; pointer-events: auto; }
+  #lineSpan .rp.done { background: var(--ok); border-color: var(--ok); }
+  #lineSpan .rp.fur { top: -2.5px; width: 4px; height: 4px; margin-left: -2px; border-color: transparent; background: var(--hair); cursor: default; }
+  #lineSpan .rp.cur { top: -5.5px; width: 10px; height: 10px; margin-left: -5px; border: 2px solid var(--accent); background: var(--paper); z-index: 2; }
+  #lineSpan .rp.cur.done { background: var(--ok); }
+  /* 刻度朝上（原语义不变）：浅层更高，章名贴刻度顶；线在 y100，上方留得出 60px */
+  #lineSpan .tick { position: absolute; top: 1px; width: 1px; background: var(--dim); transform: translateY(-100%); pointer-events: auto; }
+  #lineSpan .tickname { position: absolute; font-size: 9.5px; color: var(--ink); line-height: 1.25;
+    white-space: nowrap; transform: translateX(2px); max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+    background: rgba(250,249,246,.85); padding: 0 3px; }
+  #lineSpan .tickname.lv2 { color: var(--dim); font-size: 9px; }
+  /* 线端点的下一章/节（2026-10-14 用户定）：挂在线的真正右端（牌子在上，刻度垂到线），点它选中 */
+  #nxtmark { position: absolute; right: 0; top: -27px; height: 53px; pointer-events: auto; cursor: pointer; }
+  #nxtmark .tickname { position: static; display: block; font-size: 9.5px; color: var(--ink); line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; max-width: 220px;
+    background: rgba(250,249,246,.85); padding: 0 3px; }
+  #nxtmark .tick { position: absolute; right: 0; bottom: 0; width: 1px; height: 26px; background: var(--dim); }
+  body #center { position: fixed; top: 36px; bottom: 0; left: 0; right: 0; overflow-y: auto; }
   body:not(.noR) #center { right: var(--railw, 252px); }
 
   #rightrail { right: 0; border-left: 1px solid var(--line); }
   /* 右栏宽度拖拽手柄：中栏与产物栏的分界，用户自调，宽度记进 localStorage */
-  #splitter { position: fixed; top: 230px; bottom: 0; right: var(--railw, 252px); width: 7px;
+  #splitter { position: fixed; top: 36px; bottom: 0; right: var(--railw, 252px); width: 7px;
     margin-right: -3px; z-index: 16; cursor: col-resize; }
   #splitter:hover, #splitter.on { background: rgba(42,42,40,.10); }
   .rail .rh { font-size: 11.5px; color: var(--dim); margin: 4px 0 8px; font-family: ui-monospace, Consolas, monospace; }
@@ -81,35 +109,28 @@
   #curcard.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--hl); }
   #curcard .cmeta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace;
     display: flex; gap: 10px; }
-  /* 挂载线：TuRead 同义——内容挂在线上。左端目录（全书树，可滚动，操作后回位），
-     中段物理线（刻度朝上按层级错高，滚动锚定），右端地平线（下一个结构节点的预告，
-     处理推进时它在刻度上从右往左逐渐接近）。裁决游标只是线上一枚高亮点 */
-  #dir { width: 218px; flex: none; overflow-y: auto; border-right: 1px solid var(--hair); padding-right: 8px; }
-  #dir .di { font-size: 12.5px; line-height: 1.9; padding: 0 6px; cursor: pointer;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; color: #3a372f; }
-  #dir .di:hover { background: var(--paper); }
-  #dir .di.cur { background: var(--hl); color: var(--accent); font-weight: 700; }
-  #dir .di.near { box-shadow: inset 2px 0 0 var(--ok); }
-  #dir .di.lv2 { padding-left: 22px; font-size: 12px; color: var(--dim); }
-  #dir .di.lv3 { padding-left: 38px; font-size: 11.5px; color: var(--dim); }
-  #dir .di .lvk { color: var(--dim); font-size: 10px; font-family: ui-monospace, Consolas, monospace; margin-right: 5px; }
-  #rail { flex: 1; position: relative; min-width: 0; }
-  #rail .baseline { position: absolute; left: 0; right: 0; bottom: 64px; height: 1px; background: var(--hair); }
-  #rail .pgline { position: absolute; bottom: 64px; width: 1px; height: 18px; background: var(--hair); }
-  #rail .pglabel { position: absolute; bottom: 46px; font-size: 9px; color: var(--dim);
-    font-family: ui-monospace, Consolas, monospace; transform: translateX(3px); }
-  #rail .rp { position: absolute; bottom: 61.5px; width: 6px; height: 6px; margin-left: -3px;
-    border-radius: 50%; border: 1px solid var(--dim); background: var(--paper); cursor: pointer; }
-  #rail .rp.done { background: var(--ok); border-color: var(--ok); }
-  #rail .rp.fur { width: 4px; height: 4px; margin-left: -2px; bottom: 62.5px; border-color: transparent; background: var(--hair); cursor: default; }
-  #rail .rp.cur { width: 10px; height: 10px; margin-left: -5px; bottom: 59.5px; border: 2px solid var(--accent); background: var(--paper); z-index: 2; }
-  #rail .rp.cur.done { background: var(--ok); }
-  #rail .tick { position: absolute; bottom: 64px; width: 1px; background: var(--dim); }
-  #rail .tickname { position: absolute; font-size: 9.5px; color: var(--ink); line-height: 1.25;
-    white-space: nowrap; transform: translateX(2px); max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
-  #rail .tickname.lv2 { color: var(--dim); font-size: 9px; }
-  #horizon { width: 168px; flex: none; border-left: 1px solid var(--hair); padding-left: 12px;
-    display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; padding-bottom: 40px; }
+  /* 垂挂件（TuRead 同款，2026-10-14 用户定）：条目自线下方逐条垂挂，容器全透明，
+     内容与背景靠颜色区分；当前条目滚到列表正中（跨章平滑、首落瞬时）；
+     高亮不是改文字色，是一层桌色遮罩按条目到鼠标的距离揭开（近→揭开，远→静息盖上） */
+  #dir { position: absolute; top: 27px; left: 0; width: 220px; max-height: 62vh; z-index: 17;
+    display: flex; flex-direction: column; pointer-events: auto; }
+  body.noDir #dir { display: none; }
+  #dir .toc-rows { position: relative; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+  #dir .toc-rows::-webkit-scrollbar { width: 0; height: 0; }
+  #dir .di { position: relative; display: block; width: 100%; padding: 5px 10px 5px 0; text-align: left;
+    font-size: 13px; line-height: 1.6; color: var(--ink); background: none; border: 0; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dir .di .lbl { position: relative; z-index: 1; display: block; overflow: hidden; text-overflow: ellipsis; }
+  #dir .di .veil { position: absolute; inset: 0; z-index: 2; background: var(--desk);
+    opacity: var(--toc-veil, .55); transition: opacity 200ms ease-out; pointer-events: none; }
+  #dir .toc-fold { flex: none; display: flex; justify-content: center; margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid var(--hair); } /* 引导分割线：滚动被可视地截在线上（TuRead 2026-09-11） */
+  #dir .toc-fold button { font-size: 12px; color: var(--dim); }
+  #dir .toc-fold button:hover { color: var(--accent); }
+  #dir .toc-empty { font-size: 12px; color: var(--dim); padding: 6px 2px; } /* 空目录可见，不静默消失 */
+  #horizon { position: absolute; top: 27px; right: 0; width: 220px; z-index: 17; pointer-events: auto;
+    display: flex; flex-direction: column; gap: 2px; text-align: right; }
+  body.noHz #horizon { display: none; }
   #horizon .hzl { font-size: 10.5px; color: var(--dim); }
   #horizon .hzn { font-size: 12.5px; color: var(--ink); cursor: pointer; line-height: 1.4;
     overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
@@ -126,7 +147,7 @@
   #curcard:not(.editing) .edit-only { display: none; }
   #curcard.editing .edit-hide { display: none; }
 
-  #modebar { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 40;
+  #modebar { position: fixed; bottom: 170px; left: 50%; transform: translateX(-50%); z-index: 40;
     background: var(--ink); color: #fff; padding: 6px 18px; border-radius: 4px; display: none; font-size: 14px; }
   #toast { position: fixed; bottom: 18px; right: 18px; z-index: 50; display: none;
     background: var(--ok); color: #fff; padding: 6px 16px; border-radius: 4px; font-size: 13px; }
@@ -140,10 +161,13 @@
   <span class="sp"></span>
   <span class="count" id="counts"></span>
 </div>
-<div id="mount">
-  <div id="dir" title="全书目录：点条目跳转；任何操作后自动回到当前章"></div>
-  <div id="rail" title="挂载线：跟着滚动走 · 实心=已定 · 空心=待校 · 淡点=附着 · 刻度=标题（朝上按层级） · 点它跳转"></div>
-  <div id="horizon" title="地平线：下一个结构节点，处理推进时它会在刻度上从右往左接近"></div>
+<div id="linezone">
+  <button class="lz-seg" id="segL" aria-expanded="true" title="目录：点线收放"></button>
+  <div id="lineSpan" title="挂载线：跟着滚动走 · 实心=已定 · 空心=待校 · 淡点=附着 · 刻度=标题（朝上按层级） · 点它跳转"></div>
+  <button class="lz-seg" id="segR" aria-expanded="true" title="当前节点：点线收放"></button>
+  <div id="nxtmark"></div>
+  <div id="dir"></div>
+  <div id="horizon"></div>
 </div>
 <div id="splitter" title="拖动调整两侧宽度"></div>
 <button class="railtab" id="tabR" aria-pressed="true">已定</button>
@@ -379,7 +403,7 @@ var railBlocks = []; // 当前窗口内的块（点击委托用）
 var railY0 = 0, railSpan = 1; // 窗口物理范围（点击委托换算用）
 var railAnchor = null; // 滚动锚 {page, y0}：线跟着页图滚动走（挂载线本义）；null = 跟当前块
 function renderRail() {
-  var host = document.getElementById("rail");
+  var host = document.getElementById("lineSpan");
   var c = cur();
   railBlocks = [];
   if (!c) { host.innerHTML = ""; return; }
@@ -389,11 +413,11 @@ function renderRail() {
   railY0 = physY({ page: p0 + 1, bbox: { y0: 0 } });
   railSpan = physY({ page: p1 + 1, bbox: { y0: 0 } }) + DATA.pages[p1].h - railY0;
   var px = function (y) { return ((y - railY0) / railSpan) * 100; };
-  var html = "<div class='baseline'></div>";
+  var html = [];
   for (var pg = p0 + 1; pg <= p1 + 1; pg++) { // 页界与页码
     var xp = ((physY({ page: pg, bbox: { y0: 0 } }) - railY0) / railSpan) * 100;
-    if (pg > p0 + 1) html += "<div class='pgline' style='left:" + xp + "%'></div>";
-    html += "<div class='pglabel' style='left:" + xp + "%'>p" + pg + "</div>";
+    if (pg > p0 + 1) html.push("<div class='pgline' style='left:" + xp + "%'></div>");
+    html.push("<div class='pglabel' style='left:" + xp + "%'>p" + pg + "</div>");
   }
   var blocks = [];
   for (var i = 0; i < DATA.blocks.length; i++) {
@@ -407,17 +431,25 @@ function renderRail() {
   for (var k2 = 0; k2 < blocks.length; k2++) {
     var blk = blocks[k2].b, y = blocks[k2].y, x = px(y).toFixed(2);
     if (blk.type === "structure" && blk.level) {
-      // 目录朝上：刻度按层级错高（浅层更高），章名贴刻度顶——挂在线上的目录树
-      var th = Math.max(10, 52 - (blk.level - 1) * 17);
-      html += "<div class='tick' style='left:" + x + "%;height:" + th + "px' title='" + esc(blk.text.slice(0, 20)) + " · L" + blk.level + "（点它选中这一章）'></div>";
-      html += "<div class='tickname" + (blk.level > 1 ? " lv2" : "") + "' style='left:" + x + "%;bottom:" + (65 + th) + "px'>" + disp(blk.text.slice(0, 16)) + "</div>";
+      // 刻度朝上（语义不变）：按层级错高（浅层更高），章名贴刻度顶——挂在线上的目录树
+      var th = Math.max(10, 44 - (blk.level - 1) * 15);
+      html.push("<div class='tick' style='left:" + x + "%;height:" + th + "px' title='" + esc(blk.text.slice(0, 20)) + " · L" + blk.level + "（点它选中这一章）'></div>");
+      html.push("<div class='tickname" + (blk.level > 1 ? " lv2" : "") + "' style='left:" + x + "%;top:" + (-(th + 15)) + "px'>" + disp(blk.text.slice(0, 16)) + "</div>");
       continue; // 结构块以刻度呈现，不再画点
     }
     var st = blk.state === "原文已定" ? " done" : blk.type === "furniture" ? " fur" : "";
     var cls = "rp" + (blk === c ? " cur" + st : st);
-    html += "<span class='" + cls + "' style='left:" + x + "%' data-x='" + y + "' title='" + esc(blk.id + " · " + (blk.type === "furniture" ? "附着/弃用" : blk.state)) + "'></span>";
+    html.push("<span class='" + cls + "' style='left:" + x + "%' data-x='" + y + "' title='" + esc(blk.id + " · " + (blk.type === "furniture" ? "附着/弃用" : blk.state)) + "'></span>");
   }
-  host.innerHTML = html;
+  // 线的右端点 = 下一结构节点（2026-10-14 用户定）：结构标定后（下一节点存在），下一章/下一节挂在线端
+  var nxt = nextStructAfter(c);
+  var mark = document.getElementById("nxtmark");
+  if (nxt) {
+    var kx = nxt.level > 1 ? "下一节 · " : "下一章 · ";
+    mark.innerHTML = "<div class='tick' data-id='" + nxt.id + "' title='" + esc(kx + nxt.text) + "（点它选中）'></div>"
+      + "<span class='tickname'>" + disp(kx + nxt.text.slice(0, 14)) + "</span>";
+  } else mark.innerHTML = "";
+  host.innerHTML = html.join("");
 }
 // 左端目录：全书结构树（可滚动看全，任何操作后自动回到当前章——导航责任在这里）
 function dirEntries() { // 书序的结构块（含未标层级的也入列，标了才算树）
@@ -448,21 +480,64 @@ function nextStructAfter(b) { // 地平线：b 之后的下一个结构节点（
   }
   return null;
 }
+// 左端目录（TuRead 同款垂挂，2026-10-14 用户定先做平铺）：全书结构树平铺缩进，
+// 透明容器自线下方垂挂；当前章滚到列表正中（跨章平滑、首落瞬时，平时不打扰手动滚动）；
+// 高亮 = 桌色遮罩按条目到鼠标的距离揭开；点条目 = 选中该章并跳页（语义不变）；点线或「收起」折叠
+var dirLastCur = null;
 function renderDir() {
   var host = document.getElementById("dir");
-  var es = dirEntries(), curDir = currentDirBlock(), nxt = nextStructAfter(cur());
-  if (!es.length) { host.innerHTML = "<div style='font-size:11px;color:var(--dim);padding:4px 6px'>目录空 —— 选中标题块按 H 标层级</div>"; return; }
-  var html = "";
+  var es = dirEntries();
+  if (!es.length) { host.innerHTML = "<div class='toc-empty'>目录空 —— 选中标题块按 H 标层级</div>"; dirLastCur = null; return; }
+  var html = "<div class='toc-rows'>";
   for (var i = 0; i < es.length; i++) {
     var b = es[i];
-    var cls = "di lv" + Math.min(3, b.level) + (b === curDir ? " cur" : "") + (b === nxt ? " near" : "");
-    html += "<div class='" + cls + "' data-id='" + b.id + "' title='" + disp(b.text.slice(0, 30)) + " · p" + b.page + (b === nxt ? " · 下一节点" : "") + "'><span class='lvk'>L" + b.level + "</span>" + disp(b.text.slice(0, 18)) + "</div>";
+    html += "<button class='di' data-id='" + b.id + "' style='padding-left:" + (b.level * 14) + "px'"
+      + " title='p" + b.page + " · 选中这一章'><span class='lbl'>" + disp(b.text.slice(0, 24)) + "</span><span class='veil'></span></button>";
   }
+  html += "</div><div class='toc-fold'><button id='dir-fold'>收起</button></div>";
   host.innerHTML = html;
-  // 任何操作后回到当前位置：当前章对齐到目录可视区上部
-  var curEl = host.querySelector(".di.cur");
-  if (curEl) host.scrollTop = Math.max(0, curEl.offsetTop - host.clientHeight / 3);
+  var rows = host.querySelector(".toc-rows");
+  var curDir = currentDirBlock();
+  var curEl = curDir ? rows.querySelector(".di[data-id='" + curDir.id + "']") : null;
+  if (curEl) {
+    if (dirLastCur !== curDir.id) { // 只有跨章才动：不与人的手动滚动打架
+      dirLastCur = curDir.id;
+      rows.scrollTo({ top: Math.max(0, curEl.offsetTop - (rows.clientHeight - curEl.clientHeight) / 2), behavior: "smooth" });
+    }
+  } else dirLastCur = null;
+  host.querySelector("#dir-fold").onclick = function () { setHang("dir", false); };
 }
+// 遮罩按距离揭开：靠近只会"揭开"，远端保持静息不再更暗（TuRead 2026-09-11 口径）
+function paintDirVeil(clientY) {
+  var items = document.querySelectorAll("#dir .di");
+  for (var i = 0; i < items.length; i++) {
+    var r = items[i].getBoundingClientRect();
+    var d = clientY === null ? 1e9 : Math.max(r.top - clientY, 0, clientY - r.bottom);
+    var t = Math.max(0, 1 - d / 110);
+    items[i].style.setProperty("--toc-veil", (0.55 * (1 - t)).toFixed(3));
+  }
+}
+document.getElementById("dir").addEventListener("mousemove", function (e) { paintDirVeil(e.clientY); });
+document.getElementById("dir").addEventListener("mouseleave", function () { paintDirVeil(null); });
+// 垂挂件收放：点线左段/右段（TuRead「点线=收放」）；线本身没有字，收起后靠 title 与悬停提示
+function setHang(which, open) {
+  document.body.classList.toggle(which === "dir" ? "noDir" : "noHz", !open);
+  document.getElementById(which === "dir" ? "segL" : "segR").setAttribute("aria-expanded", String(open));
+}
+document.getElementById("segL").addEventListener("click", function () {
+  setHang("dir", document.body.classList.contains("noDir"));
+});
+document.getElementById("segR").addEventListener("click", function () {
+  setHang("hz", document.body.classList.contains("noHz"));
+});
+// 线端点的下一章/节：点它 = 选中该节点（焦点查看，Esc 回队列）
+document.getElementById("nxtmark").addEventListener("click", function (e) {
+  if (state.editing) return;
+  var t = e.target.closest(".tick");
+  if (!t) return;
+  var blk = blockById(t.getAttribute("data-id"));
+  if (blk) { state.focus = blk; renderAll(); if (PAGES[blk.page]) PAGES[blk.page].img.scrollIntoView({ block: "start" }); }
+});
 document.getElementById("dir").addEventListener("click", function (e) {
   var it = e.target.closest(".di");
   if (!it || state.editing) return;
@@ -478,9 +553,10 @@ function renderHorizon() {
   var c = cur();
   if (!c) { host.innerHTML = "<div class='hzl'>当前节点</div><div class='hzn' style='color:var(--dim);cursor:default'>—</div>"; return; }
   var k = c.type === "structure" && c.level ? "L" + c.level : c.type === "asset" ? "素材" : c.type === "furniture" ? "附着" : c.type;
+  var nxt = nextStructAfter(c);
   host.innerHTML = "<div class='hzl'>当前节点 · " + k + "</div>"
-    + "<div class='hzn' title='" + esc(c.id + " · 点击回到它") + "'>" + disp((c.text || "（无文字）").slice(0, 40)) + "</div>"
-    + "<div class='hzd'>" + c.id + " · p" + c.page + "</div>";
+    + "<div class='hzn' data-id='" + c.id + "' title='" + esc(c.id + " · 点击回到它") + "'>" + disp((c.text || "（无文字）").slice(0, 40)) + "</div>"
+    + "<div class='hzd'>" + c.id + " · p" + c.page + (nxt ? " · 下一节点 " + disp(nxt.text.slice(0, 10)) : "") + "</div>";
 }
 document.getElementById("horizon").addEventListener("click", function (e) {
   var n = e.target.closest(".hzn");
@@ -510,18 +586,21 @@ document.getElementById("center").addEventListener("scroll", function () {
   }, 140);
 });
 // 右栏宽度拖拽：中栏与产物栏的分界，用户自调，记进 localStorage
+// ⚠ 启动早期的恢复只落 CSS 变量（applyPages=false）——页图数组在脚本后段才初始化，
+//   在这里碰它 = 拖过一次栏宽的人每次打开工作台都在启动瞬间崩掉（2026-10-14 实测的真凶）
 (function () {
   var sp = document.getElementById("splitter"), drag = null;
   var saved = 0;
   try { saved = Number(localStorage.getItem("bookflow:railw")) || 0; } catch (e) {}
   function currentW() { return parseInt(document.body.style.getPropertyValue("--railw")) || 252; }
-  function setW(w) {
+  function setW(w, early) {
     w = Math.max(180, Math.min(560, w));
     document.body.style.setProperty("--railw", w + "px");
+    if (early) return;
     for (var i = 1; i < PAGES.length; i++) if (PAGES[i]) applyWidth(PAGES[i]);
     updateSelection();
   }
-  if (saved) setW(saved);
+  if (saved) setW(saved, true);
   sp.addEventListener("pointerdown", function (e) {
     drag = { x: e.clientX, w: currentW() };
     sp.classList.add("on");
@@ -537,12 +616,14 @@ document.getElementById("center").addEventListener("scroll", function () {
     try { localStorage.setItem("bookflow:railw", String(currentW())); } catch (e) {}
   });
 })();
-document.getElementById("rail").addEventListener("click", function (e) {
+document.getElementById("lineSpan").addEventListener("click", function (e) {
   if (state.editing) return;
   var p = e.target.closest(".rp");
   var t = e.target.closest(".tick");
   var b = null;
-  if (p) { // 点：精确取
+  if (t && t.getAttribute("data-id")) { // 线端点的下一章/节：直接选中它
+    b = blockById(t.getAttribute("data-id"));
+  } else if (p) { // 点：精确取
     var y = Number(p.getAttribute("data-x"));
     var best = null, bestD = Infinity;
     for (var i = 0; i < railBlocks.length; i++) {
