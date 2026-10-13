@@ -11,5 +11,8 @@ TODO.md
 MAP.md
 trash/
 
+# 机器资产（typst.exe、OCR 模型文件）本地自备，不入库
+tools/
+
 # 每书数据（源 PDF / 块图 / 页图 / 裁决日志）是运行期产物，属个人数据，不入库
 library/

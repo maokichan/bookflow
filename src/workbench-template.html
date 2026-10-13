@@ -70,6 +70,7 @@
   .pagebox img { display: block; user-select: none; }
   .bbox { position: absolute; inset: 0; pointer-events: none; display: none; }
   .brect { position: absolute; border: 2px solid var(--accent); background: var(--hl); border-radius: 2px; }
+  .brect.next { border: 1.5px dashed #4a7c59; background: rgba(74,124,89,.10); } /* 下一可拼合块的预览框 */
   .drawrect { position: absolute; border: 1.5px dashed var(--accent); background: var(--hl); pointer-events: none; }
   body.assetmode #center { cursor: crosshair; }
   .imgfail { color: #a8322a; font: 13px sans-serif; padding: 12px; }
@@ -111,7 +112,7 @@
 <div class="rail" id="rightrail"></div>
 <div id="center"><div id="pages"></div></div>
 <div id="curcard">
-  <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="ccount"></span></div>
+  <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="cmerge" style="color:var(--accent)"></span><span id="ccount"></span></div>
   <div class="ctxt" id="ctext"></div>
   <div class="cacts">
     <button class="ta edit-hide" data-k="g">盖章 G</button>
@@ -136,7 +137,7 @@
 /*__DATA__*/null;
 // ===== 状态 =====
 var TYPES = ["flow", "structure", "furniture", "annotation", "asset", "untyped"];
-var state = { idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, levelMode: false, assetMode: false, undoStack: [], redoStack: [] };
+var state = { idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, levelMode: false, assetMode: false, undoStack: [], redoStack: [], focus: null };
 try {
   var mirrored = JSON.parse(localStorage.getItem(logKey()) || "[]");
   if (mirrored.length) { state.log = mirrored; toast("检测到 " + mirrored.length + " 条未落盘裁决，请先导出"); }
@@ -155,7 +156,7 @@ function queue() {
 function doneBlocks() {
   return DATA.blocks.filter(function (b) { return b.state === "原文已定"; });
 }
-function cur() { var q = queue(); return q[state.idx] || null; }
+function cur() { return state.focus || queue()[state.idx] || null; } // 焦点块（左右栏点选）优先于队列游标
 function pageSrc(p) { return PAGES_BASE + "p" + String(p).padStart(3, "0") + ".png"; }
 
 // ===== 动作 =====
@@ -222,19 +223,31 @@ function applyAndLog(action, block, payload) {
   renderChrome();
   if (state.log.length >= 15) { toast("已满 15 条，自动导出"); exportLog(); }
 }
+// 撤销/重做栈持久化：刷新或隔天回来仍能反悔最近的裁决（块不在图里时栈自动清空兜底）
+function saveUndo() {
+  try { localStorage.setItem(logKey() + ":undo", JSON.stringify({ u: state.undoStack, r: state.redoStack })); }
+  catch (e) { console.warn("撤销栈落 localstorage 失败（忽略）——", e); }
+}
+function loadUndo() {
+  try {
+    var j = JSON.parse(localStorage.getItem(logKey() + ":undo") || "null");
+    if (j) { state.undoStack = j.u || []; state.redoStack = j.r || []; }
+  } catch (e) { console.warn("撤销栈读不出（忽略）——", e); }
+}
 function push(action, block, payload) {
   var inverse = computeInverse(action, block, payload);
   applyAndLog(action, block, payload);
-  if (inverse) { state.undoStack.push(inverse); state.redoStack = []; }
+  if (inverse) { state.undoStack.push(inverse); state.redoStack = []; saveUndo(); }
 }
 function doUndo() {
   if (state.editing) return;
   var u = state.undoStack.pop();
   if (!u) { toast("没有可撤销的裁决"); return; }
   var b = blockById(u.blockId);
-  if (!b) { state.undoStack = []; toast("块 " + u.blockId + " 已不在图中，撤销栈已清"); return; }
+  if (!b) { state.undoStack = []; saveUndo(); toast("块 " + u.blockId + " 已不在图中，撤销栈已清"); return; }
   applyAndLog(u.action, b, u.payload);
   state.redoStack.push(u);
+  saveUndo();
   renderAll();
   toast("已撤销：" + u.action);
 }
@@ -243,9 +256,10 @@ function doRedo() {
   var r = state.redoStack.pop();
   if (!r) { toast("没有可重做的裁决"); return; }
   var b = blockById(r.blockId);
-  if (!b) { state.redoStack = []; toast("块 " + r.blockId + " 已不在图中，重做栈已清"); return; }
+  if (!b) { state.redoStack = []; saveUndo(); toast("块 " + r.blockId + " 已不在图中，重做栈已清"); return; }
   applyAndLog(r.action, b, r.payload);
   state.undoStack.push(r);
+  saveUndo();
   renderAll();
   toast("已重做：" + r.action);
 }
@@ -292,8 +306,10 @@ function placeCaretEnd(el) {
 function renderCurrent() {
   var q = queue();
   if (state.idx >= q.length) state.idx = Math.max(0, q.length - 1);
-  var b = q[state.idx];
+  var b = cur();
   var card = document.getElementById("curcard");
+  var cmeta = document.getElementById("cmerge");
+  cmeta.textContent = "";
   if (!b) {
     document.getElementById("cid").textContent = "—";
     document.getElementById("ctype").textContent = "本队列已清";
@@ -303,8 +319,14 @@ function renderCurrent() {
     card.classList.remove("editing");
   } else {
     document.getElementById("cid").textContent = b.id;
-    document.getElementById("ctype").textContent = b.type + (b.role ? " " + b.role : "") + (b.level ? " L" + b.level : "") + " · " + b.state;
-    document.getElementById("ccount").textContent = (state.idx + 1) + " / " + q.length;
+    document.getElementById("ctype").textContent = b.type + (b.role ? " " + b.role : "") + (b.level ? " L" + b.level : "") + " · " + b.state + (state.focus ? " · 焦点" : "");
+    document.getElementById("ccount").textContent = state.focus ? "Esc 回队列" : (state.idx + 1) + " / " + q.length;
+    // 拼合现状 + 拼合预览：按 M 之前就知道会拼进什么
+    var mine = absorbedBy(b), next = nextMergeable(b);
+    var parts = [];
+    if (mine.length) parts.push("已拼 " + mine.length + " 块（Ctrl+Z 逐块拆开）");
+    if (next) parts.push("下块 " + next.id + "「" + next.text.slice(0, 14) + "…」 M 拼入");
+    if (parts.length) cmeta.textContent = parts.join(" · ");
     var ct2 = document.getElementById("ctext");
     ct2.textContent = b.text;
     if (state.editing) { ct2.setAttribute("contenteditable", "true"); card.classList.add("editing"); placeCaretEnd(ct2); }
@@ -377,17 +399,21 @@ function joinPara(a, b) {
   var cjkR = /[\u3000-\u9fff\uf900-\ufaff\u3040-\u30ff《「『【〈“‘(（]/.test(d[0]);
   return (cjkL || cjkR) ? c + d : c + " " + d;
 }
-function doMerge() {
-  var b = cur(); if (!b) return;
-  if (b.type !== "flow") { toast("仅流转块可拼合"); return; }
-  var idx = DATA.blocks.indexOf(b), next = null;
+// 与 doMerge 同一判定的"下一可拼合块"：页图上画虚线框预览，M 之前看得见要拼什么
+function nextMergeable(b) {
+  if (b.type !== "flow") return null;
+  var idx = DATA.blocks.indexOf(b);
   for (var i = idx + 1; i < DATA.blocks.length; i++) {
     var n = DATA.blocks[i];
-    if (n.type === "furniture" || n.absorbedInto) continue; // 页眉页码与已拼段都可隔着
-    if (n.type !== "flow" || n.state !== "typed") { toast("相邻块不可拼合（" + n.id + "）"); return; }
-    next = n; break;
+    if (n.type === "furniture" || n.absorbedInto) continue;
+    return (n.type === "flow" && n.state === "typed") ? n : null;
   }
-  if (!next) { toast("书序里没有可拼合的下一块"); return; }
+  return null;
+}
+function doMerge() {
+  var b = cur(); if (!b) return;
+  var next = nextMergeable(b);
+  if (!next) { toast("仅流转块可拼合，且书序下一块须为待校流转块"); return; }
   push("merge", b, { absorb: next.id });
   toast(b.id + " ⊕ " + next.id);
   renderAll(); // 拼合后的块仍是当前条目，继续审它
@@ -479,6 +505,7 @@ function commitEdit() {
 // ===== 导航 =====
 function move(d) {
   if (state.editing) return;
+  if (state.focus) { toast("焦点查看中 —— Esc 回队列后 J/K"); return; }
   var n = queue().length;
   if (!n) { renderCurrent(); return; }
   state.idx = Math.min(n - 1, Math.max(0, state.idx + d));
@@ -568,27 +595,28 @@ function applyWidth(pg) {
 function absorbedBy(b) { // 全书吸收进 b 的块（拼合链：跨页时画它们的框）
   return DATA.blocks.filter(function (x) { return x.absorbedInto === b.id; });
 }
+function drawRect(pg, blk, cls) { // 在页 pg 上画块 blk 的框（cls 追加样式）
+  applyWidth(pg);
+  var k = pg.img.clientWidth / DATA.pages[blk.page - 1].w;
+  var box = document.createElement("div");
+  box.className = "brect" + (cls ? " " + cls : "");
+  box.style.left = blk.bbox.x0 * k - 3 + "px";
+  box.style.top = blk.bbox.y0 * k - 3 + "px";
+  box.style.width = (blk.bbox.x1 - blk.bbox.x0) * k + 6 + "px";
+  box.style.height = (blk.bbox.y1 - blk.bbox.y0) * k + 6 + "px";
+  pg.bbox.appendChild(box);
+}
 function updateSelection() {
   for (var i = 1; i < PAGES.length; i++) { PAGES[i].bbox.innerHTML = ""; PAGES[i].bbox.style.display = "none"; }
   var b = cur();
-  if (!b || !PAGES[b.page]) return;
+  if (!b) return;
   var chain = [b].concat(absorbedBy(b)); // 主块 + 链上成员，每页各画各的框
   for (var c = 0; c < chain.length; c++) {
     var blk = chain[c];
-    if (!PAGES[blk.page]) continue;
-    var pg = PAGES[blk.page];
-    applyWidth(pg);
-    var k = pg.img.clientWidth / DATA.pages[blk.page - 1].w;
-    var box = document.createElement("div");
-    box.className = "brect";
-    box.style.display = "block";
-    box.style.left = blk.bbox.x0 * k - 3 + "px";
-    box.style.top = blk.bbox.y0 * k - 3 + "px";
-    box.style.width = (blk.bbox.x1 - blk.bbox.x0) * k + 6 + "px";
-    box.style.height = (blk.bbox.y1 - blk.bbox.y0) * k + 6 + "px";
-    pg.bbox.appendChild(box);
-    pg.bbox.style.display = "block";
+    if (PAGES[blk.page]) { drawRect(PAGES[blk.page], blk, ""); PAGES[blk.page].bbox.style.display = "block"; }
   }
+  var next = nextMergeable(b); // 下一可拼合块：虚线预览，拼前看得见
+  if (next && PAGES[next.page]) { drawRect(PAGES[next.page], next, "next"); PAGES[next.page].bbox.style.display = "block"; }
 }
 function centerSelection() {
   // 让位居中：选中块的主框对齐到「底部容器以上」可视区的中心，永不被容器盖住
@@ -664,7 +692,8 @@ function declareAsset(page, bb) {
   var nb = { id: base + String(seq).padStart(3, "0"), page: page, bbox: bb, type: "asset", state: "typed",
     text: "", bold: false, findings: [], history: [] };
   push("declare", nb, { block: nb }); // computeInverse 对 declare 给 undeclare
-  toast("素材块 " + nb.id + "（A 或 Esc 退出标框）");
+  toggleAssetMode(); // 单发语义：标完一个框即退出，不留模式残留
+  toast("素材块 " + nb.id + " 已入块图（Ctrl+Z 可撤）");
   renderAll();
 }
 
@@ -718,16 +747,16 @@ document.getElementById("leftrail").addEventListener("click", function (e) {
   var id = it.getAttribute("data-id");
   var q = queue();
   var idx = q.findIndex(function (b) { return b.id === id; });
-  if (idx >= 0) { state.idx = idx; renderCurrent(); return; }
+  if (idx >= 0) { state.focus = null; state.idx = idx; renderAll(); return; } // 待校块直接进队列游标
   var blk = DATA.blocks.find(function (b) { return b.id === id; });
-  if (blk) { toast(blk.id + " · " + blk.state); }
+  if (blk) { state.focus = blk; renderAll(); } // 已定/其他块进焦点：可改文、改型、标结构、退回
 });
 document.getElementById("rightrail").addEventListener("click", function (e) {
   if (e.target.id === "mt-toggle") { state.mtFull = state.mtFull === false; renderDone(); return; }
   var it = e.target.closest(".mt-item");
   if (!it || state.editing) return;
-  var page = Number(it.getAttribute("data-page"));
-  if (PAGES[page]) PAGES[page].img.scrollIntoView({ block: "start" });
+  var blk = DATA.blocks.find(function (b) { return b.id === it.getAttribute("data-id"); });
+  if (blk) { state.focus = blk; renderAll(); } // 已定条目点开即焦点：Y 可退回重校
 });
 document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
   btn.addEventListener("click", function () {
@@ -804,6 +833,7 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   var key = e.key.length === 1 ? e.key.toLowerCase() : e.key; // 快捷键不挑大小写：大写锁定/ Shift 误按同键
+  if (state.focus && key === "Escape") { state.focus = null; renderAll(); return; } // 焦点查看，Esc 回队列
   switch (key) {
     case "j": case "ArrowUp": e.preventDefault(); move(-1); break;
     case "k": case "ArrowDown": e.preventDefault(); move(1); break;
@@ -839,6 +869,7 @@ document.addEventListener("keydown", function (e) {
 // ===== 启动 =====
 document.getElementById("title").textContent = DATA.title + " —— 原文校对";
 replayMirror();
+loadUndo();
 buildPages();
 renderAll();
 </script>
