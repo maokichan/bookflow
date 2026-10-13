@@ -27,18 +27,15 @@
   .railtab { position: fixed; top: 36px; z-index: 21; height: 26px; line-height: 26px;
     font-size: 12.5px; color: var(--ink); opacity: .38; padding: 0 14px; background: var(--desk); }
   .railtab:hover { opacity: 1; }
-  body:not(.noL) #tabL, body:not(.noR) #tabR { opacity: .82; }
-  #tabL { left: 0; border-right: 1px solid var(--line); }
+  body:not(.noR) #tabR { opacity: .82; }
   #tabR { right: 0; border-left: 1px solid var(--line); }
 
   .rail { position: fixed; top: 62px; bottom: 0; width: 252px; z-index: 15;
     background: var(--desk); overflow-y: auto; padding: 10px 12px 120px; }
-  body.noL #leftrail, body.noR #rightrail { display: none; }
+  body.noR #rightrail { display: none; }
   body #center { position: fixed; top: 36px; bottom: 0; left: 0; right: 0; overflow-y: auto; }
-  body:not(.noL) #center { left: 252px; }
   body:not(.noR) #center { right: 252px; }
 
-  #leftrail { left: 0; border-right: 1px solid var(--line); }
   #rightrail { right: 0; border-left: 1px solid var(--line); }
   .rail .rh { font-size: 11.5px; color: var(--dim); margin: 4px 0 8px; font-family: ui-monospace, Consolas, monospace; }
   /* 滚动条：只写 ::-webkit-scrollbar，绝不写 scrollbar-width/scrollbar-color ——
@@ -50,16 +47,9 @@
   ::-webkit-scrollbar-thumb:hover { background: rgba(42,42,40,.28); }
   #center::-webkit-scrollbar, .rail::-webkit-scrollbar, #curcard .ctxt::-webkit-scrollbar { width: 6px; height: 6px; }
   #center::-webkit-scrollbar-thumb, .rail::-webkit-scrollbar-thumb, #curcard .ctxt::-webkit-scrollbar-thumb { border-radius: 3px; }
-  .ol-item { font-size: 13px; padding: 3px 6px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ol-item.lv1 { padding-left: 6px; }
-  .ol-item.lv2 { padding-left: 28px; border-left: 1px solid var(--hair); margin-left: 10px; }
-  .ol-item.lv3 { padding-left: 50px; border-left: 1px solid var(--hair); margin-left: 32px; }
   .mt-item { font-size: 13.5px; line-height: 1.9; padding: 9px 4px; border-bottom: 1px solid var(--hair); cursor: pointer; color: #3a372f; }
   .mt-item:hover { background: var(--paper); }
   .mt-item.mt-h { font-weight: 700; font-size: 14.5px; color: var(--ink); }
-  .ol-item:hover { background: var(--paper); }
-
-  .ol-item .opg { float: right; color: var(--dim); font-size: 11px; }
   .ol-empty { font-size: 12.5px; color: var(--dim); }
   .dn-item { font-size: 13px; line-height: 1.6; padding: 6px 6px; border-bottom: 1px solid var(--hair); color: #57534a; }
   .dn-item .dmeta { font-size: 10.5px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
@@ -82,17 +72,22 @@
   #curcard.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--hl); }
   #curcard .cmeta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace;
     display: flex; gap: 10px; }
-  /* 示意线：全书块一串点，当前点居中；实心=已定原文，淡点=附着/弃用，空心=待校 */
-  #rail { display: flex; align-items: center; justify-content: center; gap: 2px; height: 14px;
-    margin: 0 0 5px; overflow: hidden; }
-  #rail .rp { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--dim);
-    flex: none; cursor: pointer; background: var(--paper); }
+  /* 示意线：当前页 ± 附近页的物理视图。x = 块在页中的位置，点距随内容密度自然伸缩；
+     结构块画刻度，最浅层标章名；实心=已定、空心=待校、淡点=附着/弃用 */
+  #rail { position: relative; height: 30px; margin: 0 0 6px; }
+  #rail .baseline { position: absolute; left: 0; right: 0; bottom: 8px; height: 1px; background: var(--hair); }
+  #rail .pgline { position: absolute; bottom: 8px; width: 1px; height: 22px; background: var(--hair); }
+  #rail .pglabel { position: absolute; bottom: 10px; font-size: 9px; color: var(--dim);
+    font-family: ui-monospace, Consolas, monospace; transform: translateX(3px); }
+  #rail .rp { position: absolute; bottom: 5.5px; width: 6px; height: 6px; margin-left: -3px;
+    border-radius: 50%; border: 1px solid var(--dim); background: var(--paper); cursor: pointer; }
   #rail .rp.done { background: var(--ok); border-color: var(--ok); }
-  #rail .rp.fur { width: 4px; height: 4px; border-color: transparent; background: var(--hair); cursor: default; }
-  #rail .rp.cur { width: 10px; height: 10px; border: 2px solid var(--accent); background: var(--paper); }
-  #rail .rp.cur.done { background: var(--ok); } /* 当前块已盖章：实心 + 高亮圈 */
-  #rail .rp.cur.fur { width: 8px; height: 8px; background: var(--hair); }
-  #rail .re { color: var(--dim); font-size: 10px; flex: none; }
+  #rail .rp.fur { width: 4px; height: 4px; margin-left: -2px; bottom: 6.5px; border-color: transparent; background: var(--hair); cursor: default; }
+  #rail .rp.cur { width: 10px; height: 10px; margin-left: -5px; bottom: 3.5px; border: 2px solid var(--accent); background: var(--paper); z-index: 2; }
+  #rail .rp.cur.done { background: var(--ok); }
+  #rail .tick { position: absolute; bottom: 8px; width: 1px; height: 12px; background: var(--dim); }
+  #rail .tickname { position: absolute; bottom: 19px; font-size: 9.5px; color: var(--ink);
+    white-space: nowrap; transform: translateX(2px); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
   #curcard .cmeta .sp { flex: 1; }
   #curcard .ctxt { font-size: 15px; line-height: 1.75; white-space: pre-wrap; outline: none;
     max-height: 9.5em; overflow-y: auto; margin: 4px 0 6px; }
@@ -114,16 +109,15 @@
 <div id="topbar">
   <button class="ta" onclick="window.close();location.href='/';">‹ 书架</button>
   <h1 id="title"></h1>
+  <button class="ta" id="clear-levels" style="color:#a8322a">清层级</button>
   <span class="sp"></span>
   <span class="count" id="counts"></span>
 </div>
-<button class="railtab" id="tabL" aria-pressed="true">结构</button>
 <button class="railtab" id="tabR" aria-pressed="true">已定</button>
-<div class="rail" id="leftrail"></div>
 <div class="rail" id="rightrail"></div>
 <div id="center"><div id="pages"></div></div>
 <div id="curcard">
-  <div id="rail" title="全书块示意线：实心=已定 · 空心=待校 · 淡点=附着/弃用 · 点它跳转"></div>
+  <div id="rail" title="附近两页的块：实心=已定 · 空心=待校 · 淡点=附着/弃用 · 刻度=标题 · 点它跳转"></div>
   <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="cmerge" style="color:var(--accent)"></span><span id="ccount"></span></div>
   <div class="ctxt" id="ctext"></div>
   <div class="cacts">
@@ -196,7 +190,7 @@ function applyEntry(action, block, payload) {
     if (payload.level !== undefined) block.level = payload.level ?? undefined; // null = 清除
     if (payload.role !== undefined) block.role = payload.role ?? undefined;
   }
-  else if (action === "structure") { block.type = "structure"; block.level = payload.level; block.role = payload.role; }
+  else if (action === "structure") { block.type = "structure"; block.level = payload.level; } // 纯层级：角色不再存在
   else if (action === "merge") {
     var m = blockById(payload.absorb);
     if (m) {
@@ -322,7 +316,7 @@ function replayMirror() {
       if (ok) b.state = a.payload.state;
     } else if (a.action === "edit") b.text = a.payload.text;
     else if (a.action === "reclassify") applyEntry("reclassify", b, a.payload);
-    else if (a.action === "structure") { b.type = "structure"; b.level = a.payload.level; b.role = a.payload.role; }
+    else if (a.action === "structure") { b.type = "structure"; b.level = a.payload.level; }
     else if (a.action === "merge") {
       var m = blockById(a.payload.absorb);
       if (m && !m.absorbedInto) applyEntry("merge", b, a.payload);
@@ -333,37 +327,90 @@ function replayMirror() {
 }
 
 // ===== 渲染 =====
-function renderAll() { renderChrome(); renderOutline(); renderCurrent(); renderDone(); }
+function renderAll() { renderChrome(); renderCurrent(); renderDone(); }
 function renderChrome() {
   var q = queue(), d = doneBlocks();
   document.getElementById("counts").textContent = "待校 " + q.length + " · 已定 " + d.length;
   document.getElementById("tabR").textContent = "已定 · " + d.length;
-  document.getElementById("tabL").textContent = "结构 · " + DATA.blocks.filter(function (b) { return b.type === "structure" && b.level; }).length;
   renderRail();
 }
 // 示意线：全书未吸收块按书序一串点，当前点居中；已定实心、附着淡点、待校空心；点它跳转
+// 示意线：当前块所在页起的两页物理视图。x = 块在窗口内的物理位置，点距随内容密度伸缩；
+// 结构块画刻度（最浅层标文字），实心=已定、空心=待校、淡点=附着/弃用；点击跳最近块。
+function physY(b) { // 块在书中的物理 y（按累计页高，非等高页也成立）
+  var y = 0;
+  for (var i = 0; i < b.page - 1; i++) y += DATA.pages[i].h;
+  return y + b.bbox.y0;
+}
+var railBlocks = []; // 当前窗口内的块（点击委托用）
+var railY0 = 0, railSpan = 1; // 窗口物理范围（点击委托换算用）
 function renderRail() {
   var host = document.getElementById("rail");
-  var all = DATA.blocks.filter(function (b) { return !b.absorbedInto; });
   var c = cur();
-  var ci = c ? all.indexOf(c) : -1;
-  if (ci < 0) { host.innerHTML = ""; return; }
-  var W = 64, s = Math.max(0, ci - W), e = Math.min(all.length, ci + W + 1);
-  var html = s > 0 ? "<span class='re'>…</span>" : "";
-  for (var i = s; i < e; i++) {
-    var b = all[i];
-    var st = b.state === "原文已定" ? " done" : b.type === "furniture" ? " fur" : "";
-    var cls = "rp" + (i === ci ? " cur" + st : st);
-    html += "<span class='" + cls + "' data-i='" + i + "' title='" + esc(b.id + " · " + (b.type === "furniture" ? "附着/弃用" : b.state)) + "'></span>";
+  railBlocks = [];
+  if (!c) { host.innerHTML = ""; return; }
+  var P = DATA.pages.length, p0 = Math.min(P - 1, c.page - 1), p1 = Math.min(P - 1, c.page); // [p0, p1] 两页窗口
+  railY0 = physY({ page: p0 + 1, bbox: { y0: 0 } });
+  railSpan = physY({ page: p1 + 1, bbox: { y0: 0 } }) + DATA.pages[p1].h - railY0;
+  var px = function (y) { return ((y - railY0) / railSpan) * 100; };
+  var html = "<div class='baseline'></div>";
+  for (var pg = p0 + 1; pg <= p1 + 1; pg++) { // 页界与页码
+    var xp = ((physY({ page: pg, bbox: { y0: 0 } }) - railY0) / railSpan) * 100;
+    if (pg > p0 + 1) html += "<div class='pgline' style='left:" + xp + "%'></div>";
+    html += "<div class='pglabel' style='left:" + xp + "%'>p" + pg + "</div>";
   }
-  if (e < all.length) html += "<span class='re'>…</span>";
+  var blocks = [];
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var b = DATA.blocks[i];
+    if (b.absorbedInto || b.page < p0 + 1 || b.page > p1 + 1) continue;
+    var y = physY(b);
+    if (y < railY0 || y > railY0 + railSpan) continue;
+    blocks.push({ b: b, y: y });
+    railBlocks.push(b);
+  }
+  var minLv = Infinity;
+  for (var k = 0; k < blocks.length; k++)
+    if (blocks[k].b.type === "structure" && blocks[k].b.level && blocks[k].b.level < minLv) minLv = blocks[k].b.level;
+  for (var k2 = 0; k2 < blocks.length; k2++) {
+    var blk = blocks[k2].b, y = blocks[k2].y, x = px(y).toFixed(2);
+    if (blk.type === "structure" && blk.level) {
+      html += "<div class='tick' style='left:" + x + "%' title='" + esc(blk.text.slice(0, 16)) + " · L" + blk.level + "'></div>";
+      if (blk.level === minLv)
+        html += "<div class='tickname' style='left:" + x + "%'>" + esc(blk.text.slice(0, 12)) + "</div>";
+      continue; // 结构块以刻度呈现，不再画点
+    }
+    var st = blk.state === "原文已定" ? " done" : blk.type === "furniture" ? " fur" : "";
+    var cls = "rp" + (blk === c ? " cur" + st : st);
+    html += "<span class='" + cls + "' style='left:" + x + "%' data-x='" + y + "' title='" + esc(blk.id + " · " + (blk.type === "furniture" ? "附着/弃用" : blk.state)) + "'></span>";
+  }
   host.innerHTML = html;
 }
 document.getElementById("rail").addEventListener("click", function (e) {
+  if (state.editing) return;
   var p = e.target.closest(".rp");
-  if (!p || state.editing) return;
-  var all = DATA.blocks.filter(function (b) { return !b.absorbedInto; });
-  var b = all[Number(p.getAttribute("data-i"))];
+  var t = e.target.closest(".tick");
+  var b = null;
+  if (p) { // 点：精确取
+    var y = Number(p.getAttribute("data-x"));
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < railBlocks.length; i++) {
+      var d = Math.abs(physY(railBlocks[i]) - y);
+      if (railBlocks[i].type !== "structure" && d < bestD) { bestD = d; best = railBlocks[i]; }
+    }
+    b = best;
+  } else if (t) { // 刻度：跳该标题之后书序最近的待校块
+    var yT = railY0 + (parseFloat(t.style.left) / 100) * railSpan;
+    var best2 = null, bestD2 = Infinity;
+    for (var j = 0; j < DATA.blocks.length; j++) {
+      var bj = DATA.blocks[j];
+      if (bj.absorbedInto || bj.state !== "typed" || bj.type === "furniture" || bj.type === "structure") continue;
+      var yj = physY(bj);
+      if (yj < yT) continue; // 只看向后的
+      var d2 = yj - yT;
+      if (d2 < bestD2) { bestD2 = d2; best2 = bj; }
+    }
+    b = best2;
+  }
   if (!b) return;
   var idx = queue().findIndex(function (x) { return x.id === b.id; });
   if (idx >= 0) { state.focus = null; state.idx = idx; }
@@ -407,7 +454,7 @@ function renderCurrent() {
     card.classList.remove("editing");
   } else {
     document.getElementById("cid").textContent = b.id;
-    document.getElementById("ctype").textContent = b.type + (b.role ? " " + b.role : "") + (b.level ? " L" + b.level : "") + " · " + b.state + (state.focus ? " · 焦点" : "");
+    document.getElementById("ctype").textContent = b.type + (b.level ? " L" + b.level : "") + " · " + b.state + (state.focus ? " · 焦点" : "");
     document.getElementById("ccount").textContent = state.focus ? "Esc 回队列" : (state.idx + 1) + " / " + q.length;
     // 拼合现状 + 拼合预览：按 M 之前就知道会拼进什么
     var mine = absorbedBy(b), next = nextMergeable(b);
@@ -437,27 +484,6 @@ function renderDone() {
     html += "<div class='mt-item" + cls + "' data-id='" + b.id + "' data-page='" + b.page + "' data-y='" + b.bbox.y0 + "'>" + esc(txt) + "</div>";
   }
   host.innerHTML = "<div class='rh'>OCR 产物 · <button class='ta' id='mt-toggle'>" + (state.mtFull !== false ? "节选" : "全量") + "</button></div>" + html;
-}
-
-// ===== 大纲（左栏：结构树即导航；计数 = 归属到该结构的块数） =====
-function renderOutline() {
-  var host = document.getElementById("leftrail");
-  var own = owners();
-  var items = [], counts = {};
-  for (var i = 0; i < DATA.blocks.length; i++) {
-    var b = DATA.blocks[i];
-    if (b.type === "structure") items.push(b);
-    if (own[b.id] && b.id !== own[b.id]) counts[own[b.id]] = (counts[own[b.id]] ?? 0) + 1;
-  }
-  items.sort(function (x, y) { return x.page - y.page || x.bbox.y0 - y.bbox.y0; });
-  if (!items.length) { host.innerHTML = "<div class='rh'>结构</div><div class='ol-empty'>空 —— 选中标题块按 H 标层级</div>"; return; }
-  var html = "";
-  for (var j = 0; j < items.length; j++) {
-    var t = items[j];
-    html += "<div class='ol-item lv" + Math.max(1, t.level || 1) + "' data-id='" + t.id + "'>"
-      + esc(t.text.slice(0, 20)) + "<span class='opg'>" + t.page + " · " + (counts[t.id] ?? 0) + "块</span></div>";
-  }
-  host.innerHTML = "<div class='rh'>结构 · 括号内为归属块数 · <button class='ta' id='clear-struct'>清空结构</button></div>" + html;
 }
 
 // ===== 动作实现 =====
@@ -509,38 +535,11 @@ function doMerge() {
   renderAll(); // 拼合后的块仍是当前条目，继续审它
 }
 
-// ===== 结构辅助：角色 + 层级（封面/目录/前言…都是结构；编号模式给建议，手动为准） =====
-var ROLES = ["封面", "目录", "前言", "导论", "章", "节", "目", "附录", "后记", "参考文献"];
-var ROLE_LEVEL = { "封面": 0, "目录": 0, "前言": 1, "导论": 1, "章": 1, "节": 2, "目": 3, "附录": 1, "后记": 1, "参考文献": 1 };
-function suggestRole(t) {
-  t = (t || "").trim();
-  if (!t) return null;
-  for (var i = 0; i < ROLES.length; i++) {
-    var r = ROLES[i];
-    if (r === "章" || r === "节" || r === "目") continue;
-    if (t.indexOf(r) === 0) return { role: r, level: ROLE_LEVEL[r] };
-  }
-  if (/^序(言|文)?|^绪论|^引言/.test(t)) return { role: "前言", level: 1 };
-  if (/^(第[一二三四五六七八九十百0-9]+(章|部|编|篇))/.test(t)) return { role: "章", level: 1 };
-  if (/^(Part|Chapter)\s*[0-9]/i.test(t)) return { role: "章", level: 1 };
-  if (/^(第[一二三四五六七八九十百0-9]+(节|讲|回))/.test(t)) return { role: "节", level: 2 };
-  if (/^[一二三四五六七八九十]+、/.test(t)) return { role: "节", level: 2 };
-  if (/^\d+\.\d+(?!\.\d)/.test(t)) return { role: "节", level: 2 };
-  if (/^\d+\.\d+\.\d+/.test(t)) return { role: "目", level: 3 };
-  return null;
-}
-function showRoleSuggest() {
-  var s = suggestRole(cur() ? cur().text : "");
-  state.suggest = s;
-  var menu = "1封面 2目录 3前言 4导论 5章 6节 7目 8附录 9后记 0参考文献";
-  modebar(s ? "结构 → 回车认建议 " + s.role + " L" + s.level + " · " + menu + " （Esc 取消）"
-            : "结构 → " + menu + " （Esc 取消）");
-}
-function doStructureRole(i) {
+// ===== 结构：纯层级（H 后数字键直标深度；程序不问这本书的分类叫法，只认层级本身） =====
+function doStructureLevel(n) {
   var b = cur(); if (!b) return;
-  var role = ROLES[i]; if (!role) return;
-  push("structure", b, { role: role, level: ROLE_LEVEL[role] });
-  toast(b.id + " → " + role + " L" + ROLE_LEVEL[role]);
+  push("structure", b, { level: n });
+  toast(b.id + " → L" + n);
   state.levelMode = false; modebar("");
   renderAll();
   if (cur() === b) move(1);
@@ -570,17 +569,6 @@ function insertAtCaret(el, s) {
   sel.removeAllRanges(); sel.addRange(r);
 }
 
-// ===== 归属：块按书序归入最近的前置结构节点（同页内标题线以上的自然归前节） =====
-function owners() {
-  var map = {}, owner = null;
-  for (var i = 0; i < DATA.blocks.length; i++) {
-    var b = DATA.blocks[i];
-    if (b.type === "furniture") continue;
-    if (b.type === "structure") { owner = b.id; map[b.id] = owner; continue; }
-    if (owner) map[b.id] = owner;
-  }
-  return map;
-}
 function commitEdit() {
   var ed = document.getElementById("ctext");
   if (!ed) { state.editing = false; return; }
@@ -832,37 +820,26 @@ function wireRailTab(id, cls) {
     tab.setAttribute("aria-pressed", document.body.classList.contains(cls) ? "false" : "true");
   });
 }
-wireRailTab("tabL", "noL");
 wireRailTab("tabR", "noR");
-document.getElementById("leftrail").addEventListener("click", function (e) {
-  var clearBtn = e.target.closest("#clear-struct");
-  if (clearBtn) { // 清空结构：全部结构块回流转（批量动作一笔撤销）；两步确认
-    if (clearBtn.dataset.armed !== "1") {
-      clearBtn.dataset.armed = "1";
-      clearBtn.textContent = "确认清空？";
-      setTimeout(function () { clearBtn.dataset.armed = ""; clearBtn.textContent = "清空结构"; }, 4000);
-      return;
-    }
-    clearBtn.dataset.armed = "";
-    var acts = [];
-    for (var i = 0; i < DATA.blocks.length; i++) {
-      var sb = DATA.blocks[i];
-      if (sb.type === "structure") acts.push({ action: "reclassify", block: sb, payload: { type: "flow", level: null, role: null } });
-    }
-    if (!acts.length) { toast("没有结构块"); return; }
-    pushCombined(acts);
-    renderAll();
-    toast("已清空 " + acts.length + " 个结构块（Ctrl+Z 整体回退）");
+// 清层级：全部结构块的层级退回正文（批量动作一笔撤销）；两步确认
+document.getElementById("clear-levels").addEventListener("click", function () {
+  var btn = document.getElementById("clear-levels");
+  if (btn.dataset.armed !== "1") {
+    btn.dataset.armed = "1";
+    btn.textContent = "确认清层级？";
+    setTimeout(function () { btn.dataset.armed = ""; btn.textContent = "清层级"; }, 4000);
     return;
   }
-  var it = e.target.closest(".ol-item");
-  if (!it || state.editing) return;
-  var id = it.getAttribute("data-id");
-  var q = queue();
-  var idx = q.findIndex(function (b) { return b.id === id; });
-  if (idx >= 0) { state.focus = null; state.idx = idx; renderAll(); return; } // 待校块直接进队列游标
-  var blk = DATA.blocks.find(function (b) { return b.id === id; });
-  if (blk) { state.focus = blk; renderAll(); } // 已定/其他块进焦点：可改文、改型、标结构、退回
+  btn.dataset.armed = "";
+  var acts = [];
+  for (var i = 0; i < DATA.blocks.length; i++) {
+    var sb = DATA.blocks[i];
+    if (sb.type === "structure") acts.push({ action: "reclassify", block: sb, payload: { type: "flow", level: null, role: null } });
+  }
+  if (!acts.length) { toast("没有层级可清"); return; }
+  pushCombined(acts);
+  renderAll();
+  toast("已清 " + acts.length + " 个层级标注（Ctrl+Z 整体回退）");
 });
 document.getElementById("rightrail").addEventListener("click", function (e) {
   if (e.target.id === "mt-toggle") { state.mtFull = state.mtFull === false; renderDone(); return; }
@@ -876,7 +853,7 @@ document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
     var k = btn.getAttribute("data-k");
     if (k === "g") doGate(false);
     else if (k === "e") { if (cur()) { state.editing = true; renderCurrent(); } }
-    else if (k === "h") { if (cur()) { state.levelMode = true; showRoleSuggest(); } }
+    else if (k === "h") { if (cur()) { state.levelMode = true; modebar("层级 → 1 2 3 4 5 6 （数字=层级深度，Esc 取消）"); } }
     else if (k === "t") { state.typeMode = true; modebar("改型 → 1 正文 · 2 标题 · 3 弃用(附着) · 4 注释 · 5 素材 · 6 未分型 （Esc 取消）"); }
     else if (k === "m") doMerge();
     else if (k === "a") toggleAssetMode();
@@ -936,12 +913,7 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   if (state.levelMode) {
-    if (e.key === "Enter" && state.suggest) { e.preventDefault(); doStructureRole(ROLES.indexOf(state.suggest.role)); }
-    else if (/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      var i = e.key === "0" ? 9 : Number(e.key) - 1;
-      doStructureRole(i);
-    }
+    if (/^[1-6]$/.test(e.key)) { e.preventDefault(); doStructureLevel(Number(e.key)); }
     else if (e.key === "Escape") { state.levelMode = false; modebar(""); }
     return;
   }
@@ -967,7 +939,7 @@ document.addEventListener("keydown", function (e) {
     case "h": {
       if (!cur()) break;
       state.levelMode = true;
-      showRoleSuggest();
+      modebar("层级 → 1 2 3 4 5 6 （数字=层级深度，Esc 取消）");
       break;
     }
     case "i": toggleZoom(); break;

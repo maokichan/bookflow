@@ -117,6 +117,7 @@ const now = () => new Date().toISOString();
 const logLines = [
   { ts: now(), block: flow1.id, action: "gate", payload: { state: "原文已定" } },
   { ts: now(), block: flow2.id, action: "edit", payload: { text: editedText } },
+  { ts: now(), block: flow2.id, action: "structure", payload: { level: 2 } }, // 纯层级：role 不复存在
   { ts: now(), block: quote.id, action: "reclassify", payload: { type: "untyped" } },
   { ts: now(), block: mSrc.id, action: "merge", payload: { absorb: mTgt1.id } },
   { ts: now(), block: mSrc.id, action: "merge", payload: { absorb: mTgt2.id } }, // 隔着已吸收块 → 放行
@@ -141,6 +142,7 @@ const b3 = g2.blocks.find((b) => b.id === quote.id)!;
 const mS2 = g2.blocks.find((b) => b.id === mSrc.id)!;
 const mT1 = g2.blocks.find((b) => b.id === mTgt1.id)!;
 ok(b1.state === "原文已定", `${flow1.id} → 原文已定`);
+ok(b2.type === "structure" && b2.level === 2 && b2.role === undefined, `${flow2.id} → structure L2（纯层级，无角色）`);
 ok(b2.text === editedText, `${flow2.id} 改文生效`);
 ok(b3.type === "untyped", `${quote.id} → untyped`);
 ok(!g2.blocks.some((b) => b.id === assetId), "素材块已随撤标移除");

@@ -93,17 +93,14 @@ for (const f of logs) {
       if (a.payload.level !== undefined) b.level = a.payload.level ?? undefined;
       if (a.payload.role !== undefined) b.role = a.payload.role ?? undefined;
     } else if (a.action === "structure") {
-      // 手动结构对齐：块标进角色 + 层级（封面/目录=0 特殊节点，1 章 2 节 3 目…）
-      const ROLES = new Set(["封面", "目录", "前言", "导论", "章", "节", "目", "附录", "后记", "参考文献"]);
+      // 手动结构对齐：纯层级（1=最浅）。程序不问这本书的分类叫法，只认层级本身；
+      // 旧日志可能带 role 字段——忽略不存（角色体系已移除）。
       if (!Number.isInteger(a.payload?.level) || a.payload.level < 0 || a.payload.level > 6) {
         report.rejected.push(`${where} ${b.id} 非法结构层级 ${a.payload?.level}`); continue;
       }
-      if (a.payload.role && !ROLES.has(a.payload.role)) {
-        report.rejected.push(`${where} ${b.id} 未知结构角色 ${a.payload.role}`); continue;
-      }
       b.type = "structure";
       b.level = a.payload.level;
-      b.role = a.payload.role;
+      b.role = undefined;
     } else if (a.action === "merge") {
       // 拼合：b 吸收 payload.absorb 指向的块。中间允许隔着附着/素材/注释块（跨页、隔图注的段落
       // 是常态），只挡未吸收的流转块与结构块——隔段落、隔标题拼合不在语义内。
