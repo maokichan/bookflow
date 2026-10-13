@@ -68,10 +68,49 @@ console.log(`打开 ${path.basename(PDF_PATH)}，${doc.numPages} 页`);
 const pages: { w: number; h: number }[] = [];
 const lines: Line[] = [];
 
+// 页面尺寸先于行源采集（两种行源都要用：OCR 行的 px→pt 换算靠它）
 for (let p = 1; p <= doc.numPages; p++) {
   const page = await doc.getPage(p);
   const vp = page.getViewport({ scale: 1 });
   pages.push({ w: vp.width, h: vp.height });
+}
+
+// ---------- 行源：识别来源决定行从哪来（自带文本层 / 本地 OCR 意见），下游分型与重组不感知差异 ----------
+const paramsPath = pathsFor(BOOK).params;
+const source_ = existsSync(paramsPath)
+  ? (JSON.parse(readFileSync(paramsPath, "utf-8")).ocr?.engine ?? "textlayer")
+  : "textlayer";
+
+if (source_ === "local") {
+  // OCR 意见 → 行。坐标换算按「PDF 页宽 / 页图像素宽」比例（与渲染 scale 无关，不怕参数漂移）；
+  // 字号用行高代替：分型只看行间相对比例（结构/注释判据都是 baseFs 的倍数），够用
+  const opPath = pathsFor(BOOK).ocr;
+  if (!existsSync(opPath)) {
+    console.error("本地 OCR 意见缺失 —— 先跑识别（书架点识别，或 npm run ocr -- --book <id>）");
+    process.exit(1);
+  }
+  const op = JSON.parse(readFileSync(opPath, "utf-8"));
+  if (op.book !== BOOK) {
+    console.error(`OCR 意见投错书（意见属 ${op.book}）—— 回书架重跑识别`);
+    process.exit(1);
+  }
+  for (const l of op.lines) {
+    const img = op.images[String(l.page)];
+    const dim = pages[l.page - 1];
+    if (!img || !dim || !l.text) continue;
+    const k = dim.w / img.w;
+    lines.push({
+      page: l.page,
+      x0: l.bbox.x0 * k, x1: l.bbox.x1 * k,
+      top: l.bbox.y0 * k, bottom: l.bbox.y1 * k,
+      fs: (l.bbox.y1 - l.bbox.y0) * k,
+      text: l.text,
+    });
+  }
+  console.log(`识别来源：本地 OCR 意见 —— ${lines.length} 行（${op.engine?.name ?? "?"}）`);
+} else {
+for (let p = 1; p <= doc.numPages; p++) {
+  const page = await doc.getPage(p);
   const tc = await page.getTextContent();
   type It = { str: string; tr: number[]; w: number; h: number; eol: boolean };
   const items = (tc.items as any[])
@@ -121,12 +160,13 @@ for (let p = 1; p <= doc.numPages; p++) {
       page: p,
       x0: Math.min(...arr.map((it) => it.tr[4])),
       x1: Math.max(...arr.map((it) => it.tr[4] + it.w)),
-      top: vp.height - baseY - fs * 0.95,
-      bottom: vp.height - baseY + fs * 0.30,
+      top: pages[p - 1].h - baseY - fs * 0.95,
+      bottom: pages[p - 1].h - baseY + fs * 0.30,
       fs, text,
     });
   }
   if (droppedMarkers) console.log(`  p${p}: 丢弃上标锚点标记 ${droppedMarkers} 个（脚注编号字形，正文不含）`);
+}
 }
 
 // ---------- 分型 ----------
