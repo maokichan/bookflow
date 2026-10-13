@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, mkdirSync
 import path from "node:path";
 import { ROOT, joinParaText } from "../src/model.ts";
 import { LIBRARY, loadRegistry, saveRegistry, pathsFor, deriveStage } from "../src/library.ts";
+import { stampLog } from "../src/logheader.ts";
 
 const BOOK = "test-book";
 const P = pathsFor(BOOK);
@@ -72,26 +73,37 @@ const flow1 = g.blocks.find((b) => b.type === "flow" && b.text.includes("一九�
 const flow2 = g.blocks.find((b) => b.type === "flow" && b.text.includes("The Chemical Brothers"))!;
 const quote = g.blocks.find((b) => b.type === "flow" && b.text.includes("我们从来不觉得"))!;
 const editedText = flow2.text.replace("more melodic", "更加旋律化（人工校订）");
-// 拼合样本：书序相邻、未被其他动作触及的一对流转块
-let mSrc: any, mTgt: any;
-for (let i = 0; i < g.blocks.length - 1; i++) {
-  const a = g.blocks[i], c = g.blocks[i + 1];
-  if (a.type === "flow" && c.type === "flow" && a.state === "typed" && c.state === "typed"
-    && ![flow1.id, flow2.id, quote.id].includes(a.id) && ![flow1.id, flow2.id, quote.id].includes(c.id)) {
-    mSrc = a; mTgt = c; break;
+// 拼合链样本：书序相邻的三对流转块（a⊕b 后再 ⊕c —— 隔着已吸收块的第二拼合）
+let mSrc: any, mTgt1: any, mTgt2: any;
+for (let i = 0; i < g.blocks.length - 2; i++) {
+  const a = g.blocks[i], c = g.blocks[i + 1], d = g.blocks[i + 2];
+  if (a.type === "flow" && c.type === "flow" && d.type === "flow"
+    && a.state === "typed" && c.state === "typed" && d.state === "typed"
+    && [a, c, d].every((x) => ![flow1.id, flow2.id, quote.id].includes(x.id))) {
+    mSrc = a; mTgt1 = c; mTgt2 = d; break;
   }
 }
-const mergedText = joinParaText(mSrc.text, mTgt.text);
+const merged1 = joinParaText(mSrc.text, mTgt1.text);
+const merged2 = joinParaText(merged1, mTgt2.text);
+// 素材块：手造一个合法 bbox（页 1 版心内）
+const assetId = "p01-a000";
+const assetBBox = { x0: 60, y0: 200, x1: 300, y1: 400 };
+const now = () => new Date().toISOString();
 const logLines = [
-  { ts: new Date().toISOString(), block: flow1.id, action: "gate", payload: { state: "原文已定" } },
-  { ts: new Date().toISOString(), block: flow2.id, action: "edit", payload: { text: editedText } },
-  { ts: new Date().toISOString(), block: quote.id, action: "reclassify", payload: { type: "untyped" } },
-  { ts: new Date().toISOString(), block: mSrc.id, action: "merge", payload: { absorb: mTgt.id } },
-  { ts: new Date().toISOString(), block: flow1.id, action: "gate", payload: { state: "原文已定" } }, // 非法：重复盖章
+  { ts: now(), block: flow1.id, action: "gate", payload: { state: "原文已定" } },
+  { ts: now(), block: flow2.id, action: "edit", payload: { text: editedText } },
+  { ts: now(), block: quote.id, action: "reclassify", payload: { type: "untyped" } },
+  { ts: now(), block: mSrc.id, action: "merge", payload: { absorb: mTgt1.id } },
+  { ts: now(), block: mSrc.id, action: "merge", payload: { absorb: mTgt2.id } }, // 隔着已吸收块 → 新规则放行
+  { ts: now(), block: mSrc.id, action: "unmerge", payload: { absorb: mTgt2.id, text: merged1, bbox: mSrc.bbox } },
+  { ts: now(), block: mSrc.id, action: "unmerge", payload: { absorb: mTgt1.id, text: mSrc.text, bbox: mSrc.bbox } },
+  { ts: now(), block: assetId, action: "declare", payload: { block: { id: assetId, page: 1, bbox: assetBBox, type: "asset", state: "typed", text: "" } } },
+  { ts: now(), block: assetId, action: "undeclare", payload: {} },
+  { ts: now(), block: flow1.id, action: "gate", payload: { state: "原文已定" } }, // 非法：重复盖章
 ];
 const logName = "smoke-test.jsonl";
 mkdirSync(P.inbox, { recursive: true });
-writeFileSync(path.join(P.inbox, logName), logLines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+writeFileSync(path.join(P.inbox, logName), stampLog(BOOK, logLines.map((l) => JSON.stringify(l)).join("\n") + "\n"));
 r = run("src/replay.ts");
 console.log(r.stdout.toString().trim());
 ok(r.status === 0, "回放退出码 0");
@@ -100,15 +112,33 @@ const b1 = g2.blocks.find((b) => b.id === flow1.id)!;
 const b2 = g2.blocks.find((b) => b.id === flow2.id)!;
 const b3 = g2.blocks.find((b) => b.id === quote.id)!;
 const mS2 = g2.blocks.find((b) => b.id === mSrc.id)!;
-const mT2 = g2.blocks.find((b) => b.id === mTgt.id)!;
+const mT1 = g2.blocks.find((b) => b.id === mTgt1.id)!;
 ok(b1.state === "原文已定", `${flow1.id} → 原文已定`);
 ok(b2.text === editedText, `${flow2.id} 改文生效`);
 ok(b3.type === "untyped", `${quote.id} → untyped`);
-ok(mS2.text === mergedText, `${mSrc.id} 拼合文本生效`);
-ok(mT2.absorbedInto === mSrc.id, `${mTgt.id} 已标记吸收`);
-ok(readdirSync(P.inbox).filter((f) => f.endsWith(".jsonl")).length === 0, "inbox 已清空");
-ok(existsSync(path.join(P.processed, logName)), "日志归档到 processed/");
+ok(!g2.blocks.some((b) => b.id === assetId), "素材块已随撤标移除");
+ok(mS2.text === mSrc.text && JSON.stringify(mS2.bbox) === JSON.stringify(mSrc.bbox),
+  `${mSrc.id} 两轮拼合+两轮撤销后文本与框完全复原`);
+ok(mT1.absorbedInto === undefined && !mTgt1.absorbedInto && !mTgt2.absorbedInto, "被吸收块均已恢复独立");
 ok(r.stdout.toString().includes("拒绝 1"), "非法动作被拒（重复盖章）");
+ok(existsSync(path.join(P.processed, logName)), "信封日志归档到 processed/");
+
+console.log("▶ 4.5/5 信封验签：篡改日志整份拒收");
+const tamperedName = "smoke-tampered.jsonl";
+const goodBody = JSON.stringify({ ts: now(), block: flow1.id, action: "edit", payload: { text: "被篡改混入的文本" } }) + "\n";
+// 明确的坏哈希（避开"末位恰好已是替换字符"的概率坑）
+writeFileSync(path.join(P.inbox, tamperedName),
+  JSON.stringify({ bookflow: 1, kind: "adjudication", book: BOOK, entries: 1, sha256: "deadbeef".repeat(8) }) + "\n" + goodBody);
+r = run("src/replay.ts");
+ok(r.status !== 0, "验签失败退出码非 0");
+ok(existsSync(path.join(P.inbox, tamperedName)), "被篡改日志留在 inbox 未消费");
+ok(r.stderr.toString().includes("内容校验不过"), "拒绝原因指明校验失败");
+// 错箱：信封写着别的书号
+writeFileSync(path.join(P.inbox, tamperedName), stampLog("别的书", goodBody));
+r = run("src/replay.ts");
+ok(r.status !== 0 && r.stderr.toString().includes("投错收发箱"), "书号不符整份拒收");
+rmSync(path.join(P.inbox, tamperedName));
+ok(readdirSync(P.inbox).filter((f) => f.endsWith(".jsonl")).length === 0, "inbox 已清空");
 
 console.log("▶ 5/5 回放后工作台反映新状态 + 阶段推导");
 r = run("src/exportwb.ts");

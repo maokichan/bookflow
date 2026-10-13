@@ -146,7 +146,8 @@ export function progress(id: string, st?: BookStage): { pct: number; proofDone: 
   if (s.extracted) pct += 5;
   if (s.rendered) pct += 5;
   if (s.exported) pct += 5;
-  const proofTotal = Math.max(0, s.blockCount - (s.blockTypes.furniture ?? 0));
+  // 应校分母排除附着块与素材块：页眉页码与图/表不是"待校对的文"
+  const proofTotal = Math.max(0, s.blockCount - (s.blockTypes.furniture ?? 0) - (s.blockTypes.asset ?? 0));
   const proofDone = s.blockStates["原文已定"] ?? 0;
   if (proofTotal > 0) pct += 45 * (proofDone / proofTotal);
   return { pct: Math.round(pct * 10) / 10, proofDone, proofTotal };

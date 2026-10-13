@@ -68,8 +68,10 @@
   .pagebox { position: relative; margin: 18px auto; width: fit-content; font-size: 0;
     box-shadow: 0 1px 5px rgba(0,0,0,.22); background: #fff; }
   .pagebox img { display: block; user-select: none; }
-  .bbox { position: absolute; border: 2px solid var(--accent); background: var(--hl);
-    border-radius: 2px; pointer-events: none; display: none; }
+  .bbox { position: absolute; inset: 0; pointer-events: none; display: none; }
+  .brect { position: absolute; border: 2px solid var(--accent); background: var(--hl); border-radius: 2px; }
+  .drawrect { position: absolute; border: 1.5px dashed var(--accent); background: var(--hl); pointer-events: none; }
+  body.assetmode #center { cursor: crosshair; }
   .imgfail { color: #a8322a; font: 13px sans-serif; padding: 12px; }
 
   /* 当前裁决条目：底部居中，圆角容器，作为焦点存在 */
@@ -117,6 +119,9 @@
     <button class="ta edit-hide" data-k="h">结构 H</button>
     <button class="ta edit-hide" data-k="t">改型 T</button>
     <button class="ta edit-hide" data-k="m">拼合 M</button>
+    <button class="ta edit-hide" data-k="a">标素材 A</button>
+    <button class="ta edit-hide" data-k="undo">撤销</button>
+    <button class="ta edit-hide" data-k="redo">重做</button>
     <span class="sp"></span>
     <button class="ta edit-hide" data-k="kup">↑ J</button>
     <button class="ta edit-hide" data-k="kdn">↓ K</button>
@@ -131,19 +136,19 @@
 /*__DATA__*/null;
 // ===== 状态 =====
 var TYPES = ["flow", "structure", "furniture", "annotation", "asset", "untyped"];
-var state = { idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, levelMode: false };
+var state = { idx: 0, log: [], zoomFit: true, editing: false, typeMode: false, levelMode: false, assetMode: false, undoStack: [], redoStack: [] };
 try {
   var mirrored = JSON.parse(localStorage.getItem(logKey()) || "[]");
   if (mirrored.length) { state.log = mirrored; toast("检测到 " + mirrored.length + " 条未落盘裁决，请先导出"); }
 } catch (e) { console.warn("本地镜像裁决日志读不出（忽略）——", e); }
 function logKey() { return "bookflow:log:" + (DATA.bookId || DATA.title); } // 键跟书号：同名片不串日志（旧产物无 bookId 回退书名）
 
-// 待校队列 = 非附着块中仍为 typed 且未被吸收的，按书序；右侧栏 = 已定，逐渐成型的书
+// 待校队列 = 非附着、非素材块中仍为 typed 且未被吸收的，按书序；右侧栏 = 已定，逐渐成型的书
 function queue() {
   var arr = [];
   for (var i = 0; i < DATA.blocks.length; i++) {
     var b = DATA.blocks[i];
-    if (b.state === "typed" && b.type !== "furniture" && !b.absorbedInto) arr.push(b);
+    if (b.state === "typed" && b.type !== "furniture" && b.type !== "asset" && !b.absorbedInto) arr.push(b);
   }
   return arr;
 }
@@ -154,22 +159,95 @@ function cur() { var q = queue(); return q[state.idx] || null; }
 function pageSrc(p) { return PAGES_BASE + "p" + String(p).padStart(3, "0") + ".png"; }
 
 // ===== 动作 =====
-function push(action, block, payload) {
+// 每条裁决入日志的同时备好逆动作；撤销/重做本身也是日志条目（append-only 不破，
+// 回放器按同规则消费 unmerge/undeclare/reclassify 带层级清除）。
+function blockById(id) { return DATA.blocks.find(function (b) { return b.id === id; }); }
+function computeInverse(action, block, payload) {
+  if (action === "gate") return { action: "gate", blockId: block.id, payload: { state: block.state } };
+  if (action === "edit") return { action: "edit", blockId: block.id, payload: { text: block.text } };
+  if (action === "reclassify" || action === "structure")
+    return { action: "reclassify", blockId: block.id,
+      payload: { type: block.type, level: block.level ?? null, role: block.role ?? null } };
+  if (action === "merge")
+    return { action: "unmerge", blockId: block.id,
+      payload: { absorb: payload.absorb, text: block.text,
+        bbox: { x0: block.bbox.x0, y0: block.bbox.y0, x1: block.bbox.x1, y1: block.bbox.y1 } } };
+  if (action === "declare") return { action: "undeclare", blockId: block.id, payload: {} };
+  return null;
+}
+function applyEntry(action, block, payload) {
+  if (action === "gate") block.state = payload.state;
+  else if (action === "edit") block.text = payload.text;
+  else if (action === "reclassify") {
+    block.type = payload.type;
+    if (payload.level !== undefined) block.level = payload.level ?? undefined; // null = 清除
+    if (payload.role !== undefined) block.role = payload.role ?? undefined;
+  }
+  else if (action === "structure") { block.type = "structure"; block.level = payload.level; block.role = payload.role; }
+  else if (action === "merge") {
+    var m = blockById(payload.absorb);
+    if (m) {
+      block.text = joinPara(block.text, m.text);
+      // 同页拼合框并为一个；跨页保持页局部，附属框由显示层补画
+      if (block.page === m.page)
+        block.bbox = { x0: Math.min(block.bbox.x0, m.bbox.x0), y0: Math.min(block.bbox.y0, m.bbox.y0),
+                       x1: Math.max(block.bbox.x1, m.bbox.x1), y1: Math.max(block.bbox.y1, m.bbox.y1) };
+      m.absorbedInto = block.id;
+    }
+  }
+  else if (action === "unmerge") {
+    var m2 = blockById(payload.absorb);
+    if (m2 && m2.absorbedInto === block.id) { block.text = payload.text; block.bbox = payload.bbox; m2.absorbedInto = undefined; }
+  }
+  else if (action === "declare") {
+    var nb = payload.block;
+    if (nb && !blockById(nb.id)) {
+      var at = DATA.blocks.length; // 书序插入：页码优先，同页按 y0（与回放器同规则）
+      for (var i = 0; i < DATA.blocks.length; i++) {
+        var x = DATA.blocks[i];
+        if (x.page > nb.page || (x.page === nb.page && x.bbox.y0 > nb.bbox.y0)) { at = i; break; }
+      }
+      DATA.blocks.splice(at, 0, nb);
+    }
+  }
+  else if (action === "undeclare") {
+    if (block.state === "typed" && !DATA.blocks.some(function (x) { return x.absorbedInto === block.id; }))
+      DATA.blocks.splice(DATA.blocks.indexOf(block), 1);
+  }
+}
+function applyAndLog(action, block, payload) {
+  applyEntry(action, block, payload);
   state.log.push({ ts: new Date().toISOString(), block: block.id, action: action, payload: payload });
   localStorage.setItem(logKey(), JSON.stringify(state.log));
-  applyToBlock(block, action, payload);
   renderChrome();
   if (state.log.length >= 15) { toast("已满 15 条，自动导出"); exportLog(); }
 }
-function applyToBlock(b, action, payload) {
-  if (action === "gate") b.state = payload.state;
-  else if (action === "edit") b.text = payload.text;
-  else if (action === "reclassify") b.type = payload.type;
-  else if (action === "structure") { b.type = "structure"; b.level = payload.level; b.role = payload.role; }
-  else if (action === "merge") {
-    var m = DATA.blocks.find(function (x) { return x.id === payload.absorb; });
-    if (m) { b.text = joinPara(b.text, m.text); m.absorbedInto = b.id; }
-  }
+function push(action, block, payload) {
+  var inverse = computeInverse(action, block, payload);
+  applyAndLog(action, block, payload);
+  if (inverse) { state.undoStack.push(inverse); state.redoStack = []; }
+}
+function doUndo() {
+  if (state.editing) return;
+  var u = state.undoStack.pop();
+  if (!u) { toast("没有可撤销的裁决"); return; }
+  var b = blockById(u.blockId);
+  if (!b) { state.undoStack = []; toast("块 " + u.blockId + " 已不在图中，撤销栈已清"); return; }
+  applyAndLog(u.action, b, u.payload);
+  state.redoStack.push(u);
+  renderAll();
+  toast("已撤销：" + u.action);
+}
+function doRedo() {
+  if (state.editing) return;
+  var r = state.redoStack.pop();
+  if (!r) { toast("没有可重做的裁决"); return; }
+  var b = blockById(r.blockId);
+  if (!b) { state.redoStack = []; toast("块 " + r.blockId + " 已不在图中，重做栈已清"); return; }
+  applyAndLog(r.action, b, r.payload);
+  state.undoStack.push(r);
+  renderAll();
+  toast("已重做：" + r.action);
 }
 // 镜像日志重放（与回放器同规则，非法则跳过）
 function replayMirror() {
@@ -177,17 +255,24 @@ function replayMirror() {
   for (var i = 0; i < state.log.length; i++) {
     var a = state.log[i];
     var b = DATA.blocks.find(function (x) { return x.id === a.block; });
+    if (a.action === "declare") {
+      var nb = a.payload && a.payload.block;
+      if (nb && nb.type === "asset" && nb.state === "typed" && !blockById(nb.id)) applyEntry("declare", null, a.payload);
+      continue;
+    }
     if (!b) continue;
     if (a.action === "gate") {
       var ok = (allowed[b.state] || []).indexOf(a.payload.state) >= 0;
       if (ok) b.state = a.payload.state;
     } else if (a.action === "edit") b.text = a.payload.text;
-    else if (a.action === "reclassify") b.type = a.payload.type;
+    else if (a.action === "reclassify") applyEntry("reclassify", b, a.payload);
     else if (a.action === "structure") { b.type = "structure"; b.level = a.payload.level; b.role = a.payload.role; }
     else if (a.action === "merge") {
-      var m = DATA.blocks.find(function (x) { return x.id === a.payload.absorb; });
-      if (m && !m.absorbedInto) { b.text = joinPara(b.text, m.text); m.absorbedInto = b.id; }
+      var m = blockById(a.payload.absorb);
+      if (m && !m.absorbedInto) applyEntry("merge", b, a.payload);
     }
+    else if (a.action === "unmerge") applyEntry("unmerge", b, a.payload);
+    else if (a.action === "undeclare") applyEntry("undeclare", b, a.payload);
   }
 }
 
@@ -298,8 +383,8 @@ function doMerge() {
   var idx = DATA.blocks.indexOf(b), next = null;
   for (var i = idx + 1; i < DATA.blocks.length; i++) {
     var n = DATA.blocks[i];
-    if (n.type === "furniture") continue; // 页眉页码可隔着
-    if (n.type !== "flow" || n.state !== "typed" || n.absorbedInto) { toast("相邻块不可拼合（" + n.id + "）"); return; }
+    if (n.type === "furniture" || n.absorbedInto) continue; // 页眉页码与已拼段都可隔着
+    if (n.type !== "flow" || n.state !== "typed") { toast("相邻块不可拼合（" + n.id + "）"); return; }
     next = n; break;
   }
   if (!next) { toast("书序里没有可拼合的下一块"); return; }
@@ -402,7 +487,15 @@ function move(d) {
 
 // ===== 导出 =====
 // http 源：直存服务端该书 inbox（回放器消费），服务端确认收到才清本地——
-// 下载不落盘即丢裁决的坑就此关闭。file:// 源没有服务端可托付，维持浏览器下载。
+// 下载不落盘即丢裁决的坑就此关闭。file:// 源没有服务端可托付，浏览器算哈希盖信封后下载。
+// 信封（书号 + 内容 sha256）让日志可被人工携走跨机：传输出错/投错收发箱在回放时当场拒收。
+function sha256Hex(text) {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)).then(function (buf) {
+    var v = new Uint8Array(buf), s = "";
+    for (var i = 0; i < v.length; i++) s += v[i].toString(16).padStart(2, "0");
+    return s;
+  });
+}
 function exportLog() {
   if (!state.log.length) { toast("日志为空"); return; }
   var text = state.log.map(function (a) { return JSON.stringify(a); }).join("\n") + "\n";
@@ -421,18 +514,23 @@ function exportLog() {
       .catch(function () { toast("存入失败 —— 日志还在本地，稍后重试"); });
     return;
   }
-  var blob = new Blob([text], { type: "application/x-ndjson" });
-  var a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "adjudication-" + DATA.title + "-" + Date.now() + ".jsonl";
-  document.body.appendChild(a); a.click(); a.remove();
-  state.log = [];
-  localStorage.setItem(logKey(), "[]");
-  renderChrome();
-  toast("已下载 —— 放入该书 inbox/ 后在书架点回放");
+  sha256Hex(text).then(function (hash) {
+    var header = JSON.stringify({ bookflow: 1, kind: "adjudication", book: DATA.bookId || "",
+      entries: state.log.length, sha256: hash });
+    var blob = new Blob([header + "\n" + text], { type: "application/x-ndjson" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "adjudication-" + DATA.title + "-" + Date.now() + ".jsonl";
+    document.body.appendChild(a); a.click(); a.remove();
+    state.log = [];
+    localStorage.setItem(logKey(), "[]");
+    renderChrome();
+    toast("已下载（带校验信封）—— 放入该书 inbox/ 后在书架点回放");
+  });
 }
 
 // ===== 页图：连续滚动，选中块的高亮框始终居中 =====
+// 框不是单框：当前块本页框 + 全书它吸收的块框（跨页拼合看得见）+ 吸收它的块框（回指）。
 var PAGES = [];
 function buildPages() {
   var host = document.getElementById("pages");
@@ -456,6 +554,7 @@ function buildPages() {
     img.src = pageSrc(p);
     PAGES.push({ box: boxes[i], img: img, bbox: boxes[i].querySelector(".bbox") });
   }
+  wireAssetDraw();
 }
 function pageWidth(pg) {
   var nat = pg.img.naturalWidth || 748;
@@ -466,22 +565,33 @@ function applyWidth(pg) {
   pg.box.style.width = w + "px";
   pg.img.style.width = w + "px";
 }
+function absorbedBy(b) { // 全书吸收进 b 的块（拼合链：跨页时画它们的框）
+  return DATA.blocks.filter(function (x) { return x.absorbedInto === b.id; });
+}
 function updateSelection() {
-  for (var i = 1; i < PAGES.length; i++) PAGES[i].bbox.style.display = "none";
+  for (var i = 1; i < PAGES.length; i++) { PAGES[i].bbox.innerHTML = ""; PAGES[i].bbox.style.display = "none"; }
   var b = cur();
   if (!b || !PAGES[b.page]) return;
-  var pg = PAGES[b.page];
-  applyWidth(pg);
-  var k = pg.img.clientWidth / DATA.pages[b.page - 1].w;
-  var box = pg.bbox;
-  box.style.display = "block";
-  box.style.left = b.bbox.x0 * k - 3 + "px";
-  box.style.top = b.bbox.y0 * k - 3 + "px";
-  box.style.width = (b.bbox.x1 - b.bbox.x0) * k + 6 + "px";
-  box.style.height = (b.bbox.y1 - b.bbox.y0) * k + 6 + "px";
+  var chain = [b].concat(absorbedBy(b)); // 主块 + 链上成员，每页各画各的框
+  for (var c = 0; c < chain.length; c++) {
+    var blk = chain[c];
+    if (!PAGES[blk.page]) continue;
+    var pg = PAGES[blk.page];
+    applyWidth(pg);
+    var k = pg.img.clientWidth / DATA.pages[blk.page - 1].w;
+    var box = document.createElement("div");
+    box.className = "brect";
+    box.style.display = "block";
+    box.style.left = blk.bbox.x0 * k - 3 + "px";
+    box.style.top = blk.bbox.y0 * k - 3 + "px";
+    box.style.width = (blk.bbox.x1 - blk.bbox.x0) * k + 6 + "px";
+    box.style.height = (blk.bbox.y1 - blk.bbox.y0) * k + 6 + "px";
+    pg.bbox.appendChild(box);
+    pg.bbox.style.display = "block";
+  }
 }
 function centerSelection() {
-  // 让位居中：高亮框对齐到「底部容器以上」可视区的中心，永不被容器盖住
+  // 让位居中：选中块的主框对齐到「底部容器以上」可视区的中心，永不被容器盖住
   var b = cur();
   if (!(b && PAGES[b.page] && PAGES[b.page].bbox.style.display === "block")) return;
   var pane = center(), box = PAGES[b.page].bbox;
@@ -491,6 +601,72 @@ function centerSelection() {
   pane.scrollTop = Math.max(0, rel - zoneH / 2 + box.offsetHeight / 2);
 }
 function center() { return document.getElementById("center"); }
+
+// ===== 标素材：A 键进入拉框模式，在页图上拖框 declare 素材块（坐标换算回 PDF 点） =====
+function toggleAssetMode() {
+  state.assetMode = !state.assetMode;
+  document.body.classList.toggle("assetmode", state.assetMode);
+  modebar(state.assetMode ? "标素材 → 在页图上拖一个框（Esc 退出）" : "");
+  toast(state.assetMode ? "标素材：在页图上拖框" : "已退出标素材");
+}
+function wireAssetDraw() {
+  var host = document.getElementById("pages");
+  var sawPointer = 0; // pointerdown 已接则短窗内忽略其伴生 mousedown，防双触发
+  host.addEventListener("mousedown", function (e) {
+    if (Date.now() - sawPointer < 500) return;
+    startAssetDrag(e);
+  });
+  host.addEventListener("pointerdown", function (e) {
+    sawPointer = Date.now();
+    startAssetDrag(e);
+  });
+  function startAssetDrag(e) {
+    if (!state.assetMode || state.editing) return;
+    var boxEl = e.target.closest(".pagebox");
+    if (!boxEl) return;
+    var pgNo = Number(boxEl.getAttribute("data-p"));
+    var img = boxEl.querySelector("img");
+    if (!img.naturalWidth) return; // 页图没加载出来，坐标无从换算
+    e.preventDefault();
+    var rect = img.getBoundingClientRect();
+    var sx = e.clientX, sy = e.clientY;
+    var ghost = document.createElement("div");
+    ghost.className = "drawrect";
+    boxEl.appendChild(ghost);
+    var move = function (ev) {
+      var x0 = Math.max(rect.left, Math.min(sx, ev.clientX)), x1 = Math.min(rect.right, Math.max(sx, ev.clientX));
+      var y0 = Math.max(rect.top, Math.min(sy, ev.clientY)), y1 = Math.min(rect.bottom, Math.max(sy, ev.clientY));
+      ghost.style.left = (x0 - rect.left) + "px"; ghost.style.top = (y0 - rect.top) + "px";
+      ghost.style.width = (x1 - x0) + "px"; ghost.style.height = (y1 - y0) + "px";
+    };
+    var up = function (ev) {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      var x0 = Math.max(rect.left, Math.min(sx, ev.clientX)), x1 = Math.min(rect.right, Math.max(sx, ev.clientX));
+      var y0 = Math.max(rect.top, Math.min(sy, ev.clientY)), y1 = Math.min(rect.bottom, Math.max(sy, ev.clientY));
+      ghost.remove();
+      var k = DATA.pages[pgNo - 1].w / img.clientWidth; // 显示像素 → PDF 点
+      var bb = { x0: (x0 - rect.left) * k, y0: (y0 - rect.top) * k, x1: (x1 - rect.left) * k, y1: (y1 - rect.top) * k };
+      if (bb.x1 - bb.x0 < 8 || bb.y1 - bb.y0 < 8) return; // 手抖级小框不算
+      declareAsset(pgNo, bb);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  }
+}
+function declareAsset(page, bb) {
+  var seq = 0, base = "p" + String(page).padStart(2, "0") + "-a";
+  while (blockById(base + String(seq).padStart(3, "0"))) seq++;
+  var nb = { id: base + String(seq).padStart(3, "0"), page: page, bbox: bb, type: "asset", state: "typed",
+    text: "", bold: false, findings: [], history: [] };
+  push("declare", nb, { block: nb }); // computeInverse 对 declare 给 undeclare
+  toast("素材块 " + nb.id + "（A 或 Esc 退出标框）");
+  renderAll();
+}
 
 // ===== 版本：Ctrl+S 显式存版（走本地服务；file:// 下退化为导出日志） =====
 function saveVersion() {
@@ -561,6 +737,9 @@ document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
     else if (k === "h") { if (cur()) { state.levelMode = true; showRoleSuggest(); } }
     else if (k === "t") { state.typeMode = true; modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）"); }
     else if (k === "m") doMerge();
+    else if (k === "a") toggleAssetMode();
+    else if (k === "undo") doUndo();
+    else if (k === "redo") doRedo();
     else if (k === "n") { if (state.editing) insertAtCaret(document.getElementById("ctext"), nextMarker()); }
     else if (k === "enter") { if (state.editing) commitEdit(); }
     else if (k === "kup") move(-1);
@@ -589,11 +768,21 @@ document.addEventListener("keydown", function (e) {
     saveVersion();
     return;
   }
+  if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+    e.preventDefault();
+    if (e.shiftKey) doRedo(); else doUndo();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) {
+    e.preventDefault();
+    doRedo();
+    return;
+  }
   if (e.isComposing || e.keyCode === 229) return; // IME 合成期不接键
   if (state.editing) {
     if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
     else if (e.key === "Escape") { state.editing = false; renderAll(); }
-    else if (e.key === "n" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    else if (/^n$/i.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       insertAtCaret(document.getElementById("ctext"), nextMarker());
     }
@@ -614,7 +803,8 @@ document.addEventListener("keydown", function (e) {
     else if (e.key === "Escape") { state.levelMode = false; modebar(""); }
     return;
   }
-  switch (e.key) {
+  var key = e.key.length === 1 ? e.key.toLowerCase() : e.key; // 快捷键不挑大小写：大写锁定/ Shift 误按同键
+  switch (key) {
     case "j": case "ArrowUp": e.preventDefault(); move(-1); break;
     case "k": case "ArrowDown": e.preventDefault(); move(1); break;
     case "e": {
@@ -625,6 +815,7 @@ document.addEventListener("keydown", function (e) {
     case "g": e.preventDefault(); doGate(false); break;
     case "y": e.preventDefault(); doGate(true); break;
     case "m": e.preventDefault(); doMerge(); break;
+    case "a": e.preventDefault(); toggleAssetMode(); break;
     case "t": {
       state.typeMode = true;
       modebar("改型 → 1 flow · 2 structure · 3 furniture · 4 annotation · 5 asset · 6 untyped （Esc 取消）");
@@ -639,7 +830,8 @@ document.addEventListener("keydown", function (e) {
     case "i": toggleZoom(); break;
     case ",": nudgePage(-1); break;
     case ".": nudgePage(1); break;
-    case "s": if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); exportLog(); } break;
+    case "s": e.preventDefault(); exportLog(); break;
+    case "Escape": if (state.assetMode) toggleAssetMode(); break;
   }
 });
 

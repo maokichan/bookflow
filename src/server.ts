@@ -10,6 +10,7 @@ import { ROOT, loadGraphSoft, readGraphVersion, saveGraph } from "./model.ts";
 import { loadRegistry, saveRegistry, bookDir, pathsFor, deriveStage, progress, libraryRoot, homeConfigured, setLibraryRoot, BEHAVIORS, BEHAVIOR_STEPS, type BookMeta } from "./library.ts";
 import { verdictFor, bookActs } from "./actions.ts";
 import { renderPagesToBuffers, pdfPageCount, hasTextLayer, FX_DEFAULTS, fxHash, type Fx } from "./pageimg.ts";
+import { stampLog } from "./logheader.ts";
 
 const PORT = Number(process.env.BOOKFLOW_PORT ?? 8477);
 const CONFIG = () => path.join(libraryRoot(), "config.json"); // 功能层级：引擎配置的家（含密钥，不入库）
@@ -382,6 +383,7 @@ const server = createServer(async (req, res) => {
     if (bookVerdicts && req.method === "POST") {
       // 工作台裁决日志直存：http 源下导出走这里（落进该书 inbox/，回放器消费），
       // 不再赌浏览器下载是否落盘；写的是收发箱不是块图，唯一写者纪律不变。
+      // 落盘前盖哈希信封（logheader.ts）：日志可被人工携走跨机，传输出错在回放时当场拒收。
       const id = decodeURIComponent(bookVerdicts[1]);
       if (!findBook(id)) { json(res, 404, { error: `书 ${id} 未登记` }); return; }
       const body = await readBody(req);
@@ -390,7 +392,7 @@ const server = createServer(async (req, res) => {
       const inbox = pathsFor(id).inbox;
       mkdirSync(inbox, { recursive: true });
       const f = path.join(inbox, `adjudication-${Date.now()}.jsonl`);
-      writeFileSync(f, text.endsWith("\n") ? text : text + "\n", "utf-8");
+      writeFileSync(f, stampLog(id, text.endsWith("\n") ? text : text + "\n"), "utf-8");
       json(res, 200, { ok: true, file: path.basename(f) });
       return;
     }
