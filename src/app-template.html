@@ -299,7 +299,9 @@ async function renderBook(id) {
         } else if (btn.dataset.a === "prep") {
           await togglePrepPanel(id);
         } else if (btn.dataset.a === "proof") {
-          window.open(`/library/${encodeURIComponent(id)}/workbench.html`, "_blank");
+          // 缓存键跟块图版本：版本不变内容必相同（数据是导出时内联的），版本变了 URL 必变——
+          // 浏览器侧任何旧缓存（含禁缓存头合入之前的陈旧拷贝）都命不中
+          window.open(`/library/${encodeURIComponent(id)}/workbench.html?v=${b.graphVersion ?? 0}`, "_blank");
         }
       } catch (e) { toast(e.message); }
     };

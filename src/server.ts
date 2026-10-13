@@ -149,7 +149,7 @@ const server = createServer(async (req, res) => {
   try {
     if (p === "/" || p === "/app") {
       const html = readFileSync(path.join(import.meta.dirname, "app-template.html"), "utf-8");
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
       res.end(html);
       return;
     }
@@ -246,7 +246,7 @@ const server = createServer(async (req, res) => {
       const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
       const g = loadGraphSoft(P.graph);
       const st = deriveStage(id, g);
-      json(res, 200, { ...meta, stage: st, progress: progress(id, st), params, acts: bookActs(id, g) });
+      json(res, 200, { ...meta, stage: st, progress: progress(id, st), params, graphVersion: readGraphVersion(P.graph), acts: bookActs(id, g) });
       return;
     }
     const bookParams = p.match(/^\/api\/books\/([^/]+)\/params$/);
