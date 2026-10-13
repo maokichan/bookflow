@@ -30,13 +30,17 @@
   body:not(.noR) #tabR { opacity: .82; }
   #tabR { right: 0; border-left: 1px solid var(--line); }
 
-  .rail { position: fixed; top: 62px; bottom: 0; width: 252px; z-index: 15;
+  .rail { position: fixed; top: 62px; bottom: 0; width: var(--railw, 252px); z-index: 15;
     background: var(--desk); overflow-y: auto; padding: 10px 12px 120px; }
   body.noR #rightrail { display: none; }
   body #center { position: fixed; top: 36px; bottom: 0; left: 0; right: 0; overflow-y: auto; }
-  body:not(.noR) #center { right: 252px; }
+  body:not(.noR) #center { right: var(--railw, 252px); }
 
   #rightrail { right: 0; border-left: 1px solid var(--line); }
+  /* 右栏宽度拖拽手柄：中栏与产物栏的分界，用户自调，宽度记进 localStorage */
+  #splitter { position: fixed; top: 62px; bottom: 0; right: var(--railw, 252px); width: 7px;
+    margin-right: -3px; z-index: 16; cursor: col-resize; }
+  #splitter:hover, #splitter.on { background: rgba(42,42,40,.10); }
   .rail .rh { font-size: 11.5px; color: var(--dim); margin: 4px 0 8px; font-family: ui-monospace, Consolas, monospace; }
   /* 滚动条：只写 ::-webkit-scrollbar，绝不写 scrollbar-width/scrollbar-color ——
      Chromium 121+ 起写了标准属性，webkit 规则会被整个忽略（TuRead STYLE.md 实测的坑）。
@@ -72,12 +76,20 @@
   #curcard.editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--hl); }
   #curcard .cmeta { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace;
     display: flex; gap: 10px; }
-  /* 示意线：当前页 ± 附近页的物理视图。x = 块在页中的位置，点距随内容密度自然伸缩；
-     结构块画刻度，最浅层标章名；实心=已定、空心=待校、淡点=附着/弃用 */
-  #rail { position: relative; height: 30px; margin: 0 0 6px; }
+  /* 挂载线：TuRead 同义——内容挂在线上。上层目录朝上（刻度按层级错高，浅层更高），
+     中层是块点基线；整根线向左错开（约六成宽），右侧下方放最近被标记的条目。
+     窗口锚定页图滚动位置（阅读到哪线跟到哪），裁决游标只是线上的一枚高亮点 */
+  #railwrap { display: flex; gap: 14px; margin: 0 0 6px; }
+  #rail { position: relative; flex: 0 0 62%; height: 52px; }
+  #marked { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; padding-top: 2px; }
+  #marked .mk { font-size: 10.5px; line-height: 1.5; border: 1px solid var(--line); border-radius: 3px;
+    padding: 1px 7px; cursor: pointer; color: var(--dim); max-width: 100%; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; background: var(--paper); }
+  #marked .mk:hover { color: var(--ink); border-color: var(--dim); }
+  #marked .mk .k { color: var(--accent); font-family: ui-monospace, Consolas, monospace; margin-right: 4px; }
   #rail .baseline { position: absolute; left: 0; right: 0; bottom: 8px; height: 1px; background: var(--hair); }
-  #rail .pgline { position: absolute; bottom: 8px; width: 1px; height: 22px; background: var(--hair); }
-  #rail .pglabel { position: absolute; bottom: 10px; font-size: 9px; color: var(--dim);
+  #rail .pgline { position: absolute; bottom: 8px; width: 1px; height: 18px; background: var(--hair); }
+  #rail .pglabel { position: absolute; bottom: 9px; font-size: 9px; color: var(--dim);
     font-family: ui-monospace, Consolas, monospace; transform: translateX(3px); }
   #rail .rp { position: absolute; bottom: 5.5px; width: 6px; height: 6px; margin-left: -3px;
     border-radius: 50%; border: 1px solid var(--dim); background: var(--paper); cursor: pointer; }
@@ -85,9 +97,10 @@
   #rail .rp.fur { width: 4px; height: 4px; margin-left: -2px; bottom: 6.5px; border-color: transparent; background: var(--hair); cursor: default; }
   #rail .rp.cur { width: 10px; height: 10px; margin-left: -5px; bottom: 3.5px; border: 2px solid var(--accent); background: var(--paper); z-index: 2; }
   #rail .rp.cur.done { background: var(--ok); }
-  #rail .tick { position: absolute; bottom: 8px; width: 1px; height: 12px; background: var(--dim); }
-  #rail .tickname { position: absolute; bottom: 19px; font-size: 9.5px; color: var(--ink);
-    white-space: nowrap; transform: translateX(2px); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+  #rail .tick { position: absolute; bottom: 8px; width: 1px; background: var(--dim); }
+  #rail .tickname { position: absolute; font-size: 9.5px; color: var(--ink); line-height: 1.2;
+    white-space: nowrap; transform: translateX(2px); max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+  #rail .tickname.lv2 { color: var(--dim); font-size: 9px; }
   #curcard .cmeta .sp { flex: 1; }
   #curcard .ctxt { font-size: 15px; line-height: 1.75; white-space: pre-wrap; outline: none;
     max-height: 9.5em; overflow-y: auto; margin: 4px 0 6px; }
@@ -113,11 +126,15 @@
   <span class="sp"></span>
   <span class="count" id="counts"></span>
 </div>
+<div id="splitter" title="拖动调整两侧宽度"></div>
 <button class="railtab" id="tabR" aria-pressed="true">已定</button>
 <div class="rail" id="rightrail"></div>
 <div id="center"><div id="pages"></div></div>
 <div id="curcard">
-  <div id="rail" title="附近两页的块：实心=已定 · 空心=待校 · 淡点=附着/弃用 · 刻度=标题 · 点它跳转"></div>
+  <div id="railwrap">
+    <div id="rail" title="挂载线：跟着滚动走 · 实心=已定 · 空心=待校 · 淡点=附着 · 刻度=标题（朝上按层级） · 点它跳转"></div>
+    <div id="marked" title="最近被标记的条目（标过层级的标题、拉框的素材）"></div>
+  </div>
   <div class="cmeta"><span id="cid"></span><span id="ctype"></span><span class="sp"></span><span id="cmerge" style="color:var(--accent)"></span><span id="ccount"></span></div>
   <div class="ctxt" id="ctext"></div>
   <div class="cacts">
@@ -344,12 +361,15 @@ function physY(b) { // 块在书中的物理 y（按累计页高，非等高页�
 }
 var railBlocks = []; // 当前窗口内的块（点击委托用）
 var railY0 = 0, railSpan = 1; // 窗口物理范围（点击委托换算用）
+var railAnchor = null; // 滚动锚 {page, y0}：线跟着页图滚动走（挂载线本义）；null = 跟当前块
 function renderRail() {
   var host = document.getElementById("rail");
   var c = cur();
   railBlocks = [];
-  if (!c) { host.innerHTML = ""; return; }
-  var P = DATA.pages.length, p0 = Math.min(P - 1, c.page - 1), p1 = Math.min(P - 1, c.page); // [p0, p1] 两页窗口
+  if (!c) { host.innerHTML = ""; renderMarked(); return; }
+  // 窗口锚：优先滚动位置（阅读到哪线跟到哪），没有滚动意图时跟当前块
+  var anchor = railAnchor || { page: c.page, y0: c.bbox.y0 };
+  var P = DATA.pages.length, p0 = Math.min(P - 1, anchor.page - 1), p1 = Math.min(P - 1, anchor.page);
   railY0 = physY({ page: p0 + 1, bbox: { y0: 0 } });
   railSpan = physY({ page: p1 + 1, bbox: { y0: 0 } }) + DATA.pages[p1].h - railY0;
   var px = function (y) { return ((y - railY0) / railSpan) * 100; };
@@ -368,15 +388,13 @@ function renderRail() {
     blocks.push({ b: b, y: y });
     railBlocks.push(b);
   }
-  var minLv = Infinity;
-  for (var k = 0; k < blocks.length; k++)
-    if (blocks[k].b.type === "structure" && blocks[k].b.level && blocks[k].b.level < minLv) minLv = blocks[k].b.level;
   for (var k2 = 0; k2 < blocks.length; k2++) {
     var blk = blocks[k2].b, y = blocks[k2].y, x = px(y).toFixed(2);
     if (blk.type === "structure" && blk.level) {
-      html += "<div class='tick' style='left:" + x + "%' title='" + esc(blk.text.slice(0, 16)) + " · L" + blk.level + "'></div>";
-      if (blk.level === minLv)
-        html += "<div class='tickname' style='left:" + x + "%'>" + esc(blk.text.slice(0, 12)) + "</div>";
+      // 目录朝上：刻度按层级错高（浅层更高），章名贴刻度顶——挂在线上的目录树
+      var th = Math.max(8, 34 - (blk.level - 1) * 9);
+      html += "<div class='tick' style='left:" + x + "%;height:" + th + "px' title='" + esc(blk.text.slice(0, 20)) + " · L" + blk.level + "（点它选中这一章）'></div>";
+      html += "<div class='tickname" + (blk.level > 1 ? " lv2" : "") + "' style='left:" + x + "%;bottom:" + (9 + th) + "px'>" + esc(blk.text.slice(0, 14)) + "</div>";
       continue; // 结构块以刻度呈现，不再画点
     }
     var st = blk.state === "原文已定" ? " done" : blk.type === "furniture" ? " fur" : "";
@@ -384,7 +402,90 @@ function renderRail() {
     html += "<span class='" + cls + "' style='left:" + x + "%' data-x='" + y + "' title='" + esc(blk.id + " · " + (blk.type === "furniture" ? "附着/弃用" : blk.state)) + "'></span>";
   }
   host.innerHTML = html;
+  renderMarked();
 }
+// 最近被标记的条目：人工标过层级的标题、拉框 declare 的素材——线下方右侧的便签。
+// 双源：本会话的裁决日志（history 由回放器落账，会话内标的不在那）+ 已回放进 history 的。
+function renderMarked() {
+  var host = document.getElementById("marked");
+  if (!host) return;
+  var ids = [];
+  function add(id) { if (id && ids.indexOf(id) < 0) ids.push(id); }
+  for (var i = state.log.length - 1; i >= 0; i--) {
+    var a = state.log[i];
+    if (a.action === "structure" || a.action === "declare") add(a.block);
+  }
+  for (var k = 0; k < DATA.blocks.length; k++) {
+    var b0 = DATA.blocks[k];
+    for (var j = 0; j < b0.history.length; j++) {
+      var h = b0.history[j];
+      if (h.by === "human:workbench" && (h.action === "structure" || h.action === "declare")) add(b0.id);
+    }
+  }
+  var chips = [];
+  for (var m = 0; m < ids.length && chips.length < 4; m++) {
+    var b = blockById(ids[m]);
+    if (!b || b.absorbedInto) continue;
+    var kk = b.type === "asset" ? "素材" : "L" + b.level;
+    chips.push("<span class='mk' data-id='" + b.id + "' title='" + esc(b.id + " · 点击选中") + "'><span class='k'>" + kk + "</span>" + esc((b.text || "（无文字）").slice(0, 12)) + "</span>");
+  }
+  host.innerHTML = chips.join("") || "<span style='font-size:10.5px;color:var(--dim)'>尚无标记 —— H 标层级、A 拉素材后会出现在这里</span>";
+}
+document.getElementById("marked").addEventListener("click", function (e) {
+  var mk = e.target.closest(".mk");
+  if (!mk || state.editing) return;
+  var blk = blockById(mk.getAttribute("data-id"));
+  if (blk) { state.focus = blk; renderAll(); }
+});
+// 页图滚动 → 线的窗口跟着走（防抖；点击/裁决引起的程序滚动也走这里，天然同步）。
+// 换算走物理映射（缩放比 × 文档 y），不信任 lazy 未加载页的 DOM 高度。
+var railScrollT = null;
+document.getElementById("center").addEventListener("scroll", function () {
+  clearTimeout(railScrollT);
+  railScrollT = setTimeout(function () {
+    var pane = document.getElementById("center");
+    var midY = pane.scrollTop + pane.clientHeight / 2; // 可视中心的文档 y（显示像素）
+    var refW = (PAGES[1] && PAGES[1].img.clientWidth) || 748;
+    var zoom = refW / DATA.pages[0].w; // 显示 px / PDF 点（等宽 PDF 全书同一缩放）
+    var phys = midY / zoom;
+    var page = 1, acc = 0;
+    for (var i = 0; i < DATA.pages.length; i++) {
+      if (phys < acc + DATA.pages[i].h) { page = i + 1; break; }
+      acc += DATA.pages[i].h;
+      page = Math.min(DATA.pages.length, i + 2);
+    }
+    railAnchor = { page: page, bbox: { y0: Math.max(0, phys - acc) } };
+    renderRail();
+  }, 140);
+});
+// 右栏宽度拖拽：中栏与产物栏的分界，用户自调，记进 localStorage
+(function () {
+  var sp = document.getElementById("splitter"), drag = null;
+  var saved = 0;
+  try { saved = Number(localStorage.getItem("bookflow:railw")) || 0; } catch (e) {}
+  function currentW() { return parseInt(document.body.style.getPropertyValue("--railw")) || 252; }
+  function setW(w) {
+    w = Math.max(180, Math.min(560, w));
+    document.body.style.setProperty("--railw", w + "px");
+    for (var i = 1; i < PAGES.length; i++) if (PAGES[i]) applyWidth(PAGES[i]);
+    updateSelection();
+  }
+  if (saved) setW(saved);
+  sp.addEventListener("pointerdown", function (e) {
+    drag = { x: e.clientX, w: currentW() };
+    sp.classList.add("on");
+    e.preventDefault();
+  });
+  document.addEventListener("pointermove", function (e) {
+    if (drag) setW(drag.w + (drag.x - e.clientX));
+  });
+  document.addEventListener("pointerup", function () {
+    if (!drag) return;
+    drag = null;
+    sp.classList.remove("on");
+    try { localStorage.setItem("bookflow:railw", String(currentW())); } catch (e) {}
+  });
+})();
 document.getElementById("rail").addEventListener("click", function (e) {
   if (state.editing) return;
   var p = e.target.closest(".rp");
@@ -398,16 +499,13 @@ document.getElementById("rail").addEventListener("click", function (e) {
       if (railBlocks[i].type !== "structure" && d < bestD) { bestD = d; best = railBlocks[i]; }
     }
     b = best;
-  } else if (t) { // 刻度：跳该标题之后书序最近的待校块
+  } else if (t) { // 刻度：选中这一章本身（高亮跟选中走；想校章下的块就点它的点）
     var yT = railY0 + (parseFloat(t.style.left) / 100) * railSpan;
     var best2 = null, bestD2 = Infinity;
-    for (var j = 0; j < DATA.blocks.length; j++) {
-      var bj = DATA.blocks[j];
-      if (bj.absorbedInto || bj.state !== "typed" || bj.type === "furniture" || bj.type === "structure") continue;
-      var yj = physY(bj);
-      if (yj < yT) continue; // 只看向后的
-      var d2 = yj - yT;
-      if (d2 < bestD2) { bestD2 = d2; best2 = bj; }
+    for (var j = 0; j < railBlocks.length; j++) {
+      if (railBlocks[j].type !== "structure" || !railBlocks[j].level) continue;
+      var d2 = Math.abs(physY(railBlocks[j]) - yT);
+      if (d2 < bestD2) { bestD2 = d2; best2 = railBlocks[j]; }
     }
     b = best2;
   }
