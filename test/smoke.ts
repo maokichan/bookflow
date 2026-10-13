@@ -1,4 +1,5 @@
-// 端到端冒烟测试：测试书抽取断言 → 页图 → 工作台导出 → 合成裁决日志回放 → 断言 → 清理。
+// 端到端冒烟测试：测试书抽取断言 → 页图 → 工作台导出 → 本地 OCR 腿（无模型跳过）→
+// 合成裁决日志回放 → 断言 → 清理。
 // 测试书是注册表里的一本书（id=test-book），与真实科目互不可见 —— 不再有"冒烟重置真实现场"的坑。
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, mkdirSync } from "node:fs";
@@ -29,8 +30,10 @@ if (!existsSync(P.source)) {
 }
 rmSync(P.graph, { force: true });
 rmSync(P.pagesDir, { recursive: true, force: true });
+rmSync(P.params, { force: true }); // 上一次跑剩的参数/意见会让步骤 1 误走本地来源，现场先扫干净
+rmSync(P.ocr, { force: true });
 
-console.log("▶ 1/5 抽取");
+console.log("▶ 1/6 抽取");
 let r = run("src/extract.ts");
 if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
 const g = JSON.parse(readFileSync(P.graph, "utf-8"));
@@ -51,7 +54,7 @@ const ids = new Set(g.blocks.map((b) => b.id));
 ok(ids.size === g.blocks.length, "块 ID 唯一");
 ok(g.blocks.every((b) => b.state === "typed"), "全部 typed");
 
-console.log("▶ 2/5 页图");
+console.log("▶ 2/6 页图");
 r = run("src/renderpages.ts");
 if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
 const pngs = readdirSync(P.pagesDir).filter((f) => f.endsWith(".png"));
@@ -61,14 +64,40 @@ const dim = (f: string) => { const b = readFileSync(path.join(P.pagesDir, f)); r
 const [w1, h1] = dim("p001.png");
 ok(w1 >= 600 && h1 >= 800, `页图尺寸 ${w1}×${h1}（scale2 应约 750×1170）`);
 
-console.log("▶ 3/5 工作台导出");
+console.log("▶ 3/6 工作台导出");
 r = run("src/exportwb.ts");
 if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
 const wb = readFileSync(P.workbench, "utf-8");
 ok(wb.includes("var DATA = "), "数据已内联");
 ok(wb.includes('"pages/"') || wb.includes("PAGES_BASE"), "页图相对路径指向书内 pages/");
 
-console.log("▶ 4/5 合成裁决回放");
+console.log("▶ 4/6 本地 OCR 腿");
+// OCR 腿放在裁决回放之前：意见抽取会整份替换块图，先跑完再复原回文本层，
+// 后面的回放样本仍按文本层块图找。模型是机器资产（本地自备），缺失则整腿跳过。
+if (!existsSync(path.join(ROOT, "tools", "ocr"))) {
+  console.log("  跳过（tools/ocr 无模型——本地自备）");
+} else {
+  writeFileSync(P.params, JSON.stringify({ contrast: 100, denoise: 0, sharpen: 0, confirmedAt: new Date().toISOString(), ocr: { engine: "local" } }));
+  r = run("src/ocr.ts");
+  if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
+  const op = JSON.parse(readFileSync(P.ocr, "utf-8"));
+  ok(op.book === BOOK && op.engine.name === "ppocrv5-mobile-onnx", "意见带出生证明（书号+引擎）");
+  ok(op.lines.length >= 10, `OCR 意见 ${op.lines.length} 行`);
+  ok(op.lines.some((l) => /Chemical|化学/.test(l.text)), "OCR 读出样章正文");
+  r = run("src/extract.ts"); // 识别来源=本地：抽取消费意见行
+  if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
+  const gOcr = JSON.parse(readFileSync(P.graph, "utf-8"));
+  ok(gOcr.blocks.length >= 10
+    && gOcr.blocks.every((b) => String(b.history?.[0]?.by ?? "").startsWith("machine:")), "意见行成块且全为机器章");
+  // 复原：拆掉意见与参数，回文本层重抽（后续步骤的块图样本都在文本层里）
+  rmSync(P.params, { force: true });
+  rmSync(P.ocr, { force: true });
+  rmSync(P.graph, { force: true });
+  r = run("src/extract.ts");
+  if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
+}
+
+console.log("▶ 5/6 合成裁决回放");
 const flow1 = g.blocks.find((b) => b.type === "flow" && b.text.includes("一九八九年"))!;
 const flow2 = g.blocks.find((b) => b.type === "flow" && b.text.includes("The Chemical Brothers"))!;
 const quote = g.blocks.find((b) => b.type === "flow" && b.text.includes("我们从来不觉得"))!;
@@ -156,7 +185,7 @@ ok(fS2.text === fMerged, `相邻拼合生效（${fSrc.id} ⊕ ${fTgt.id}）`);
 ok(r.stdout.toString().includes("拒绝 2"), "非法动作被拒（跨正文拼合 + 重复盖章）");
 ok(existsSync(path.join(P.processed, logName)), "信封日志归档到 processed/");
 
-console.log("▶ 4.5/5 信封验签：篡改日志整份拒收");
+console.log("▶ 5.5/6 信封验签：篡改日志整份拒收");
 const tamperedName = "smoke-tampered.jsonl";
 const goodBody = JSON.stringify({ ts: now(), block: flow1.id, action: "edit", payload: { text: "被篡改混入的文本" } }) + "\n";
 // 明确的坏哈希（避开"末位恰好已是替换字符"的概率坑）
@@ -173,7 +202,7 @@ ok(r.status !== 0 && r.stderr.toString().includes("投错收发箱"), "书号不
 rmSync(path.join(P.inbox, tamperedName));
 ok(readdirSync(P.inbox).filter((f) => f.endsWith(".jsonl")).length === 0, "inbox 已清空");
 
-console.log("▶ 5/5 回放后工作台反映新状态 + 阶段推导");
+console.log("▶ 6/6 回放后工作台反映新状态 + 阶段推导");
 r = run("src/exportwb.ts");
 const wb2 = readFileSync(P.workbench, "utf-8");
 ok(wb2.includes("人工校订"), "工作台内联数据含回放结果");

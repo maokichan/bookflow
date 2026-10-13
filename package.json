@@ -1,6 +1,6 @@
 {
   "name": "bookflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "书稿流水线 MVP：PDF → 块图 → 工作台 → 裁决回放",
   "type": "module",
   "engines": {
@@ -13,7 +13,8 @@
     "render": "node src/renderpages.ts",
     "export": "node src/exportwb.ts",
     "replay": "node src/replay.ts",
-    "smoke": "node test/smoke.ts"
+    "smoke": "node test/smoke.ts",
+    "ocr": "node src/ocr.ts"
   },
   "license": "MIT",
   "private": true,
