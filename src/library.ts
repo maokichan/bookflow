@@ -70,6 +70,7 @@ export interface BookPaths {
   processed: string;
   tasks: string;
   params: string; // 前级参数（对比度/降噪/锐化），手动控制，入工程可复现
+  ocr: string; // 本地 OCR 意见（带出生证明的意见产物，不是事实源）
 }
 
 export function pathsFor(id: string): BookPaths {
@@ -84,6 +85,7 @@ export function pathsFor(id: string): BookPaths {
     processed: path.join(dir, "inbox", "processed"),
     tasks: path.join(dir, "tasks.jsonl"),
     params: path.join(dir, "params.json"),
+    ocr: path.join(dir, "ocr.json"),
   };
 }
 
@@ -159,6 +161,7 @@ export const BEHAVIORS: Record<string, string> = {
   render: "src/renderpages.ts",
   export: "src/exportwb.ts",
   replay: "src/replay.ts",
+  ocr: "src/ocr.ts",
 };
 
 // 用户语义的行为：一步"识别" = 抽取 + 页图 + 工作台，内部按序执行（用户不需要知道拆解）

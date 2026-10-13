@@ -29,6 +29,13 @@ function inboxPending(id: string): boolean {
   return readdirSync(P.inbox).some((f) => f.endsWith(".jsonl"));
 }
 
+// 预处理门：确定预处理（产物指纹落定）后才可识别类行为（OCR 与整链识别共用）
+function preprocessConfirmed(P: { params: string }): boolean {
+  if (!existsSync(P.params)) return false; // 缺失是常态（没做过预处理）；损坏才留痕
+  try { return !!JSON.parse(readFileSync(P.params, "utf-8")).confirmedAt; }
+  catch (e) { console.warn(`params.json 损坏（按未确认处理）—— ${P.params}`, e); return false; }
+}
+
 // 单一行为判定。ctx.graph 可传入已加载的块图（省一次解析）；ctx.inflight 传该书在途任务名。
 export function verdictFor(id: string, act: string, ctx: { inflight?: string; graph?: unknown } = {}): Verdict {
   const P = pathsFor(id);
@@ -36,14 +43,15 @@ export function verdictFor(id: string, act: string, ctx: { inflight?: string; gr
   switch (act) {
     case "process": // 识别（抽取→页图→工作台）：预处理门 + 重抽会毁人工裁决
       if (ctx.inflight) return no(`任务在途（${ctx.inflight}），完成后再排`);
-      let confirmed = false;
-      if (existsSync(P.params)) { // 缺失是常态（没做过预处理）；损坏才留痕
-        try { confirmed = !!JSON.parse(readFileSync(P.params, "utf-8")).confirmedAt; }
-        catch (e) { console.warn(`params.json 损坏（按未确认处理）—— ${P.params}`, e); }
-      }
-      if (!confirmed) return no("先完成预处理（确定预处理后解锁识别）");
+      if (!preprocessConfirmed(P)) return no("先完成预处理（确定预处理后解锁识别）");
       if (graphHasHumanWork(graph) || inboxPending(id))
         return no("块图已含人工裁决或待回放日志 —— 重抽会覆盖；确要重来，先恢复「识别完成」版");
+      return OK;
+    case "ocr": // 本地 OCR 意见：吃预处理产物（页图集合），同样先过预处理门
+      if (ctx.inflight) return no(`任务在途（${ctx.inflight}），完成后再排`);
+      if (!preprocessConfirmed(P)) return no("先完成预处理（确定预处理后解锁识别）");
+      if (!existsSync(P.pagesDir) || !readdirSync(P.pagesDir).some((f) => f.endsWith(".png")))
+        return no("页图缺失 —— 先完成预处理");
       return OK;
     case "extract": // 抽取原语：CLI 与服务端同表；--force 显式越权
       if (graphHasHumanWork(graph) || inboxPending(id))
