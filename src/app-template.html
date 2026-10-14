@@ -97,7 +97,7 @@
       <input id="c-ocrlocal-dir" type="text" style="flex:1" placeholder="选模型目录（含 PP-OCRv5 ONNX 与字典）">
       <button class="ta" id="c-ocrlocal-browse">浏览…</button>
     </div>
-    <label>引擎</label><input id="c-ocrlocal-engine" type="text" placeholder="">
+    <label>加速（留空 = cpu；auto = 先试 GPU 回退；dml / cpu）</label><input id="c-ocrlocal-engine" type="text" placeholder="当前小模型 CPU 更快；换大识别模型时 auto/dml 才有收益">
     <h3>LLM</h3>
     <label>接口地址</label><input id="c-llm-url" type="text">
     <label>密钥</label><input id="c-llm-key" type="password">

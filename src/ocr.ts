@@ -19,12 +19,21 @@ if (!gate.ok) {
   process.exit(1);
 }
 
-// 模型目录：能力配置优先；未配置而项目自带 tools/ocr 时明说来源后使用，不静默猜
-function modelDir(): string {
+// 能力配置读一份：模型目录与执行器（ocr.local.engine：留空 = cpu；auto = 先试 GPU 回退；dml/cpu 显式。
+// 实测 mobile 模型 CPU 更快——小张量的 GPU 传输开销吃掉检测收益；换大识别模型时 GPU 才是主场）
+function readLocalCfg(): { modelDir?: string; engine?: string } {
   const cfgPath = path.join(libraryRoot(), "config.json");
-  const configured = existsSync(cfgPath)
-    ? JSON.parse(readFileSync(cfgPath, "utf-8"))?.ocr?.local?.modelDir
-    : null;
+  try {
+    return (existsSync(cfgPath) ? JSON.parse(readFileSync(cfgPath, "utf-8"))?.ocr?.local : null) ?? {};
+  } catch (e) {
+    console.warn(`能力配置损坏（按未配置处理）—— ${cfgPath}`, e);
+    return {};
+  }
+}
+
+// 模型目录：能力配置优先；未配置而项目自带 tools/ocr 时明说来源后使用，不静默猜
+function modelDir(cfg: { modelDir?: string }): string {
+  const configured = cfg.modelDir;
   if (configured) {
     if (!existsSync(configured)) {
       console.error(`配置的模型目录不存在 ${configured} —— 能力配置里重新选`);
@@ -53,7 +62,9 @@ function pngSize(f: string): { w: number; h: number } {
   return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
 }
 
-const eng = await loadEngine(modelDir());
+const cfg = readLocalCfg();
+const eng = await loadEngine(modelDir(cfg), cfg.engine ?? "cpu");
+console.log(`执行器：${eng.ep === "dml" ? "DirectML (GPU)" : eng.ep}`);
 const images: Record<string, { w: number; h: number }> = {};
 const lines: { page: number; bbox: { x0: number; y0: number; x1: number; y1: number }; text: string; conf: number }[] = [];
 let total = 0;
@@ -70,7 +81,7 @@ for (const [i, f] of pages.entries()) {
 const opinion = {
   createdAt: new Date().toISOString(),
   book: BOOK,
-  engine: { name: "ppocrv5-mobile-onnx", ...eng.models },
+  engine: { name: "ppocrv5-mobile-onnx", ep: eng.ep, ...eng.models },
   images,
   lines,
 };

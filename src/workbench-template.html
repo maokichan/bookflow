@@ -100,6 +100,7 @@
   .bbox { position: absolute; inset: 0; pointer-events: none; display: none; }
   .brect { position: absolute; border: 2px solid var(--accent); background: var(--hl); border-radius: 2px; }
   .brect.next { border: 1.5px dashed #4a7c59; background: rgba(74,124,89,.10); } /* 下一可拼合块的预览框 */
+  .brect.cand { border: 1.5px dashed var(--accent); background: rgba(180,85,45,.10); } /* 选拼模式中的候选框 */
   .drawrect { position: absolute; border: 1.5px dashed var(--accent); background: var(--hl); pointer-events: none; }
   body.assetmode #center { cursor: crosshair; }
   .imgfail { color: #a8322a; font: 13px sans-serif; padding: 12px; }
@@ -721,7 +722,7 @@ function joinPara(a, b) {
   var cjkR = /[\u3000-\u9fff\uf900-\ufaff\u3040-\u30ff《「『【〈“‘(（]/.test(d[0]);
   return (cjkL || cjkR) ? c + d : c + " " + d;
 }
-// 与 doMerge 同一判定的"下一可拼合块"：中间可隔着附着/素材/注释块（跨页、隔图注是常态），
+// 与回放器同一判定的"下一可拼合块"：中间可隔着附着/素材/注释块（跨页、隔图注是常态），
 // 只挡未吸收的流转块与结构块——隔段落、隔标题不在语义内。页图上画虚线框预览。
 function nextMergeable(b) {
   if (b.type !== "flow") return null;
@@ -733,13 +734,82 @@ function nextMergeable(b) {
   }
   return null;
 }
-function doMerge() {
+
+// ===== 拼合自由化：M 进入选拼，候选自由向后走，M 拼入，可连拼 =====
+// 机器猜的"下一块"不再是法律——标题折行、段落被公式/素材行隔断都是真实场景，人指哪块拼哪块。
+// 只剩防数据打架的底线（与回放器同一判定）：候选在书序之后；中途不跨未拼的正文/标题
+// （那是阅读顺序的骨架，先改型或先拼它们）；已拼走的先拆再拼；已盖章的退回才能拼。
+function mergeWhy(b, cand) { // 候选不可拼的人话原因；可拼返回 null
+  if (!cand) return "没有候选";
+  if (cand === b) return "不能拼进自己";
+  if (cand.absorbedInto) return "已被拼走（选中主块 Ctrl+Z 可拆）";
+  var ai = DATA.blocks.indexOf(b), bi = DATA.blocks.indexOf(cand);
+  for (var i = ai + 1; i < bi; i++) {
+    var x = DATA.blocks[i];
+    if (!x.absorbedInto && (x.type === "flow" || x.type === "structure"))
+      return "中途夹着 " + x.id + "（正文/标题）—— 先改型它，或先拼它";
+  }
+  if (cand.state !== "typed") return "已盖章（" + cand.state + "）—— Y 退回后才能拼";
+  return null;
+}
+function firstMergeCand(b) { // 进入选拼时的候选：向后第一个未拼走的块（可行性由提示说明）
+  var idx = DATA.blocks.indexOf(b);
+  for (var i = idx + 1; i < DATA.blocks.length; i++) {
+    if (!DATA.blocks[i].absorbedInto) return DATA.blocks[i];
+  }
+  return null;
+}
+function mergeBarText(b) {
+  var c = blockById(state.mergeCand);
+  if (!c) return "拼合 —— 后面没有候选了（Q 退出）";
+  var why = mergeWhy(b, c);
+  return "拼合 " + b.id + " ← " + c.id + "「" + c.text.slice(0, 12) + (c.text.length > 12 ? "…" : "") + "」" +
+    (why ? " ✕ " + why : "") + " · J/K 移候选 · M 拼入 · Q 退出";
+}
+function exitMergeMode() {
+  state.mergeMode = false; state.mergeCand = null;
+  modebar(""); renderAll();
+}
+function toggleMergeMode() {
   var b = cur(); if (!b) return;
-  var next = nextMergeable(b);
-  if (!next) { toast("仅流转块可拼合，且书序下一块须为待校流转块"); return; }
-  push("merge", b, { absorb: next.id });
-  toast(b.id + " ⊕ " + next.id);
-  renderAll(); // 拼合后的块仍是当前条目，继续审它
+  if (state.mergeMode) { exitMergeMode(); return; }
+  if (b.absorbedInto) { toast("本块已拼进 " + b.absorbedInto + " —— 选中主块操作，或 Ctrl+Z 拆回"); return; }
+  var c = firstMergeCand(b);
+  if (!c) { toast("当前块之后没有候选"); return; }
+  state.mergeMode = true; state.mergeCand = c.id;
+  modebar(mergeBarText(b));
+  renderAll();
+}
+function mergeMove(d) { // 候选沿书序只向后（d=1）/向前（d=-1），已拼走的块不在候选之列
+  var b = cur(); if (!b) return;
+  var at = state.mergeCand ? DATA.blocks.indexOf(blockById(state.mergeCand)) : DATA.blocks.indexOf(b);
+  var bIdx = DATA.blocks.indexOf(b);
+  for (var i = at + d; i > bIdx && i < DATA.blocks.length; i += d) {
+    if (DATA.blocks[i].absorbedInto) continue;
+    state.mergeCand = DATA.blocks[i].id;
+    modebar(mergeBarText(b));
+    renderAll();
+    var pg = PAGES[DATA.blocks[i].page]; // 候选跨页时跟手看过去
+    var r = pg && pg.bbox.querySelector(".brect.cand");
+    if (r) r.scrollIntoView({ block: "nearest" });
+    return;
+  }
+}
+function doMergeConfirm() { // 拼入候选；拒绝不出模式，改完继续
+  var b = cur(); if (!b) return;
+  var c = blockById(state.mergeCand);
+  if (!c) { toast("没有候选"); return; }
+  var why = mergeWhy(b, c);
+  if (why) { toast("拼不进来 —— " + why); return; }
+  push("merge", b, { absorb: c.id });
+  toast(b.id + " ⊕ " + c.id);
+  var idx = DATA.blocks.indexOf(c);
+  state.mergeCand = null;
+  for (var i = idx + 1; i < DATA.blocks.length; i++) { // 连拼：候选落到下一个未拼块
+    if (!DATA.blocks[i].absorbedInto) { state.mergeCand = DATA.blocks[i].id; break; }
+  }
+  if (!state.mergeCand) exitMergeMode();
+  else { modebar(mergeBarText(b)); renderAll(); }
 }
 
 // ===== 结构：纯层级（H 后数字键直标深度；程序不问这本书的分类叫法，只认层级本身） =====
@@ -902,8 +972,10 @@ function updateSelection() {
     if (PAGES[blk.page]) { drawRect(PAGES[blk.page], blk, ""); PAGES[blk.page].bbox.style.display = "block"; }
   }
   if (PAGES[b.page]) state.curRect = PAGES[b.page].bbox.querySelector(".brect"); // 主块本页的框
-  var next = nextMergeable(b); // 下一可拼合块：虚线预览，拼前看得见
-  if (next && PAGES[next.page]) { drawRect(PAGES[next.page], next, "next"); PAGES[next.page].bbox.style.display = "block"; }
+  // 选拼中的候选画橙框；平时画智能预判的绿虚框（拼前看得见）
+  var mark = state.mergeMode ? blockById(state.mergeCand) : nextMergeable(b);
+  var cls = state.mergeMode ? "cand" : "next";
+  if (mark && PAGES[mark.page]) { drawRect(PAGES[mark.page], mark, cls); PAGES[mark.page].bbox.style.display = "block"; }
 }
 function centerSelection() {
   // 让位居中：以选中块的主框（不是整页）对齐可视区中心，切换块时目光不丢
@@ -922,7 +994,7 @@ function center() { return document.getElementById("center"); }
 function toggleAssetMode() {
   state.assetMode = !state.assetMode;
   document.body.classList.toggle("assetmode", state.assetMode);
-  modebar(state.assetMode ? "标素材 → 在页图上拖一个框（Esc 退出）" : "");
+  modebar(state.assetMode ? "标素材 → 在页图上拖一个框（再按 A 或 Esc 退出）" : "");
   toast(state.assetMode ? "标素材：在页图上拖框" : "已退出标素材");
 }
 function wireAssetDraw() {
@@ -1060,9 +1132,9 @@ document.querySelectorAll("#curcard .cacts .ta").forEach(function (btn) {
     var k = btn.getAttribute("data-k");
     if (k === "g") doGate(false);
     else if (k === "e") { if (cur()) { state.editing = true; renderCurrent(); } }
-    else if (k === "h") { if (cur()) { state.levelMode = true; modebar("层级 → 1 2 3 4 5 6 （数字=层级深度，Esc 取消）"); } }
-    else if (k === "t") { state.typeMode = true; modebar("改型 → 1 正文 · 2 标题 · 3 弃用(附着) · 4 注释 · 5 素材 · 6 未分型 （Esc 取消）"); }
-    else if (k === "m") doMerge();
+    else if (k === "h") { if (cur()) { state.levelMode = true; modebar("层级 → 1 2 3 4 5 6 （数字=层级深度，再按 H 取消）"); } }
+    else if (k === "t") { state.typeMode = true; modebar("改型 → 1 正文 · 2 标题 · 3 弃用(附着) · 4 注释 · 5 素材 · 6 未分型 （再按 T 或 Esc 取消）"); }
+    else if (k === "m") toggleMergeMode();
     else if (k === "a") toggleAssetMode();
     else if (k === "undo") doUndo();
     else if (k === "redo") doRedo();
@@ -1105,9 +1177,21 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   if (e.isComposing || e.keyCode === 229) return; // IME 合成期不接键
+  // Esc 分层（改型/全屏冲突的收口，2026-10-14）：全屏中 Esc 归浏览器退全屏，应用不拿它做取消——
+  // 浏览器是否会把它派给页面各家不一，这里按"会派来"防。各模式另有再按一次即退的开关键，全屏中也好用。
+  var fsHeld = !!document.fullscreenElement;
+  if (state.mergeMode) {
+    var mkey = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (mkey === "k" || e.key === "ArrowDown") { e.preventDefault(); mergeMove(1); }
+    else if (mkey === "j" || e.key === "ArrowUp") { e.preventDefault(); mergeMove(-1); }
+    else if (mkey === "m" || e.key === "Enter") { e.preventDefault(); doMergeConfirm(); }
+    else if (mkey === "q") { e.preventDefault(); exitMergeMode(); }
+    else if (e.key === "Escape" && !fsHeld) exitMergeMode();
+    return;
+  }
   if (state.editing) {
     if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
-    else if (e.key === "Escape") { state.editing = false; renderAll(); }
+    else if (e.key === "Escape" && !fsHeld) { state.editing = false; renderAll(); }
     else if (/^n$/i.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       insertAtCaret(document.getElementById("ctext"), nextMarker());
@@ -1116,16 +1200,19 @@ document.addEventListener("keydown", function (e) {
   }
   if (state.typeMode) {
     if (e.key >= "1" && e.key <= "6") { e.preventDefault(); doReclassify(Number(e.key)); }
-    else if (e.key === "Escape") { state.typeMode = false; modebar(""); }
+    else if (e.key === "Escape" && !fsHeld) { state.typeMode = false; modebar(""); }
+    else if (/^t$/i.test(e.key)) { state.typeMode = false; modebar(""); } // 再按 T 即取消，全屏中也好用
     return;
   }
   if (state.levelMode) {
     if (/^[1-6]$/.test(e.key)) { e.preventDefault(); doStructureLevel(Number(e.key)); }
-    else if (e.key === "Escape") { state.levelMode = false; modebar(""); }
+    else if (e.key === "Escape" && !fsHeld) { state.levelMode = false; modebar(""); }
+    else if (/^h$/i.test(e.key)) { state.levelMode = false; modebar(""); }
     return;
   }
   var key = e.key.length === 1 ? e.key.toLowerCase() : e.key; // 快捷键不挑大小写：大写锁定/ Shift 误按同键
-  if (state.focus && key === "Escape") { state.focus = null; renderAll(); return; } // 焦点查看，Esc 回队列
+  if (state.focus && key === "Escape" && !fsHeld) { state.focus = null; renderAll(); return; } // 焦点查看，Esc 回队列
+  if (state.focus && key === "q") { state.focus = null; renderAll(); return; } // 全屏中回队列用 Q
   switch (key) {
     case "j": case "ArrowUp": e.preventDefault(); move(-1); break;
     case "k": case "ArrowDown": e.preventDefault(); move(1); break;
@@ -1136,24 +1223,24 @@ document.addEventListener("keydown", function (e) {
     }
     case "g": e.preventDefault(); doGate(false); break;
     case "y": e.preventDefault(); doGate(true); break;
-    case "m": e.preventDefault(); doMerge(); break;
+    case "m": e.preventDefault(); toggleMergeMode(); break;
     case "a": e.preventDefault(); toggleAssetMode(); break;
     case "t": {
       state.typeMode = true;
-      modebar("改型 → 1 正文 · 2 标题 · 3 弃用(附着) · 4 注释 · 5 素材 · 6 未分型 （Esc 取消）");
+      modebar("改型 → 1 正文 · 2 标题 · 3 弃用(附着) · 4 注释 · 5 素材 · 6 未分型 （再按 T 或 Esc 取消）");
       break;
     }
     case "h": {
       if (!cur()) break;
       state.levelMode = true;
-      modebar("层级 → 1 2 3 4 5 6 （数字=层级深度，Esc 取消）");
+      modebar("层级 → 1 2 3 4 5 6 （数字=层级深度，再按 H 取消）");
       break;
     }
     case "i": toggleZoom(); break;
     case ",": nudgePage(-1); break;
     case ".": nudgePage(1); break;
     case "s": e.preventDefault(); exportLog(); break;
-    case "Escape": if (state.assetMode) toggleAssetMode(); break;
+    case "Escape": if (state.assetMode && !fsHeld) toggleAssetMode(); break;
   }
 });
 

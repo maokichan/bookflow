@@ -15,7 +15,9 @@ import { stampLog } from "./logheader.ts";
 const PORT = Number(process.env.BOOKFLOW_PORT ?? 8477);
 const CONFIG = () => path.join(libraryRoot(), "config.json"); // 功能层级：引擎配置的家（含密钥，不入库）
 
-// ---------- 任务队列（串行起步；复合行为按步链执行，如 识别 = 抽取→页图→工作台） ----------
+// ---------- 任务队列（复合行为按步链执行，如 识别 = 抽取→页图→工作台） ----------
+// 并发度可配（BOOKFLOW_CONCURRENCY，默认 2）：OCR 是 CPU 密集，并行不提速，
+// 但一本书的长识别不该饿死别本的小任务。同书互斥由行为表把关（在途即拒），跨书并行无扰。
 interface Task {
   id: string; book: string; behavior: string; steps: string[]; stepIdx: number;
   status: "queued" | "running" | "done" | "error";
@@ -24,7 +26,8 @@ interface Task {
 }
 const tasks: Task[] = []; // 新的在前；完成即落该书 tasks.jsonl
 const waiting: Task[] = [];
-let running = false;
+const CONCURRENCY = Math.max(1, Number(process.env.BOOKFLOW_CONCURRENCY) || 2);
+let running = 0;
 
 const inflightOf = (id: string): Task | undefined =>
   tasks.find((t) => t.book === id && (t.status === "queued" || t.status === "running"));
@@ -55,12 +58,13 @@ function stepsFor(book: string, behavior: string): string[] {
 }
 
 function pump(): void {
-  if (running || !waiting.length) return;
-  const t = waiting.shift()!;
-  running = true;
-  t.status = "running";
-  t.startedAt = new Date().toISOString();
-  spawnStep(t);
+  while (running < CONCURRENCY && waiting.length) {
+    const t = waiting.shift()!;
+    running++;
+    t.status = "running";
+    t.startedAt = new Date().toISOString();
+    spawnStep(t);
+  }
 }
 
 function spawnStep(t: Task): void {
@@ -88,7 +92,7 @@ function spawnStep(t: Task): void {
         else if (t.behavior === "replay") snapshot(t.book, "回放后");
       } catch (e) { console.error(`[server] 自动存版失败（${t.book}）——`, e); }
     }
-    running = false;
+    running--;
     pump();
   });
 }

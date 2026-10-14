@@ -102,15 +102,13 @@ for (const f of logs) {
       b.level = a.payload.level;
       b.role = undefined;
     } else if (a.action === "merge") {
-      // 拼合：b 吸收 payload.absorb 指向的块。中间允许隔着附着/素材/注释块（跨页、隔图注的段落
-      // 是常态），只挡未吸收的流转块与结构块——隔段落、隔标题拼合不在语义内。
-      // 文本只连接首尾两块，中间块原样保留，不并入。
+      // 拼合自由化：人指哪块拼哪块，类型不再限流转（标题折行、段落被公式/素材行隔断都是真实场景）。
+      // 保留防数据打架的三条：候选在书序之后；中途不跨未拼的正文/标题（阅读顺序的骨架）；
+      // 已拼走的先拆才能再拼。文本只连接首尾两块，中间块原样保留，不并入。
       const target = findBlock(g, a.payload?.absorb);
       if (!target) { report.rejected.push(`${where} ${b.id} 吸收目标不存在`); continue; }
+      if (b.absorbedInto) { report.rejected.push(`${where} ${b.id} 已被 ${b.absorbedInto} 拼走，不能作拼合主块`); continue; }
       if (target.absorbedInto) { report.rejected.push(`${where} ${target.id} 已被 ${target.absorbedInto} 吸收`); continue; }
-      if (b.type !== "flow" || target.type !== "flow") {
-        report.rejected.push(`${where} 仅流转块可拼合（${b.type}⊕${target.type}）`); continue;
-      }
       const ai = g.blocks.indexOf(b), bi = g.blocks.indexOf(target);
       if (ai < 0 || bi <= ai) { report.rejected.push(`${where} 拼合目标须在书序之后`); continue; }
       if (g.blocks.slice(ai + 1, bi).some((x) => !x.absorbedInto && (x.type === "flow" || x.type === "structure"))) {

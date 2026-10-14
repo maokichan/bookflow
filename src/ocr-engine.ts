@@ -29,19 +29,33 @@ function pickModel(dir: string, re: RegExp, what: string, required: boolean): st
 export interface OcrEngine {
   runPage: (png: Uint8Array) => Promise<{ lines: OcrLine[]; ms: number }>;
   models: { dir: string; det: string; rec: string; cls: string | null; dict: string };
+  ep: string; // 实际生效的执行器（auto 回退后的结果如实回报，随意见落盘）
 }
 
-export async function loadEngine(modelDir: string): Promise<OcrEngine> {
+// ep：执行器选择。auto = 先试 DirectML（Windows 免装工具链，检测这类大张量收益大），
+// 不可用回 CPU；dml / cpu 显式指定。单行识别是小张量，GPU 收益持平——慢在哪如实慢在哪。
+export async function loadEngine(modelDir: string, ep: string = "auto"): Promise<OcrEngine> {
   const detPath = pickModel(modelDir, /det.*\.onnx$/, "检测模型", true)!;
   const recPath = pickModel(modelDir, /rec.*\.onnx$/, "识别模型", true)!;
   const clsPath = pickModel(modelDir, /cls.*\.onnx$/, "方向分类模型", false);
   const dictPath = pickModel(modelDir, /dict.*\.txt$/, "字典", true)!;
-  const opts = { executionProviders: ["cpu"], graphOptimizationLevel: "all" } as const;
-  const [det, rec, cls] = await Promise.all([
-    InferenceSession.create(detPath, opts),
-    InferenceSession.create(recPath, opts),
-    clsPath ? InferenceSession.create(clsPath, opts) : Promise.resolve(null),
+  const eps = ep === "cpu" ? ["cpu"] : ep === "dml" ? ["dml"] : ["dml", "cpu"];
+  const create = (providers: string[]) => Promise.all([
+    InferenceSession.create(detPath, { executionProviders: providers, graphOptimizationLevel: "all" }),
+    InferenceSession.create(recPath, { executionProviders: providers, graphOptimizationLevel: "all" }),
+    clsPath ? InferenceSession.create(clsPath, { executionProviders: providers, graphOptimizationLevel: "all" }) : Promise.resolve(null),
   ]);
+  let actual = eps[0];
+  let sessions: Awaited<ReturnType<typeof create>>;
+  try {
+    sessions = await create(eps);
+  } catch (e) {
+    if (eps.length < 2) throw e;
+    console.warn(`执行器 ${eps[0]} 不可用，回退 CPU —— ${e instanceof Error ? e.message : e}`);
+    actual = "cpu";
+    sessions = await create(["cpu"]);
+  }
+  const [det, rec, cls] = sessions;
   const { readFileSync } = await import("node:fs");
   const dict = readFileSync(dictPath!, "utf-8").split("\n").map((s) => s.replace(/\r$/, ""));
   if (dict.length && dict[dict.length - 1] === "") dict.pop(); // 尾随换行会顶掉空格 token 的位置
@@ -217,5 +231,6 @@ export async function loadEngine(modelDir: string): Promise<OcrEngine> {
     runPage,
     models: { dir: modelDir, det: path.basename(detPath), rec: path.basename(recPath),
       cls: clsPath ? path.basename(clsPath) : null, dict: path.basename(dictPath!) },
+    ep: actual,
   };
 }

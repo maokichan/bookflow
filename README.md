@@ -15,12 +15,16 @@ PDF 书稿从入手到成书的全程工作流，最小可用版。核心对象�
 一切工具按书寻址：`--book <id>`（书号在 `library/index.json` 登记）。
 
 ```
-npm run app       # 书架 + 各书状态页 + 行为任务队列（本地服务，默认 127.0.0.1:8477）
+npm run app       # 书架 + 各书状态页 + 行为任务队列（本地服务，默认 127.0.0.1:8477；
+                  #   队列并发度 BOOKFLOW_CONCURRENCY，默认 2——OCR 是 CPU 密集，并发不提速，
+                  #   为的是一本书的长识别不饿死别本的小任务）
 npm run testbook  # 生成受控测试书（需自备 Typst：装进 PATH，或把 typst.exe 放到 book/tools/）
 npm run extract   # S0+S1：文本层 → 行 → 分型 → 段落重组 + S2 清洗 → 该书 blockgraph.json
                   #   （块图已含人工裁决时拒绝重抽；--force 显式越权）
 npm run render    # 页图 → 该书 pages/pNNN.png
-npm run ocr       # 本地 OCR：页图 → 该书 ocr.json 意见（PP-OCRv5 ONNX，模型目录见能力配置）
+npm run ocr       # 本地 OCR：页图 → 该书 ocr.json 意见（PP-OCRv5 ONNX，模型目录见能力配置；
+                  #   执行器见能力配置"加速"：留空 cpu（当前小模型实测更快），
+                  #   auto = 先 DirectML(GPU) 败则回 CPU，为换大识别模型预留）
 npm run export    # 工作台导出 → 该书 workbench.html（数据内联单文件）
 npm run replay    # 裁决日志回放：该书 inbox/*.jsonl → 块图状态推进（唯一写者）
 npm run smoke     # 端到端冒烟（跑在测试书自己的目录里，不碰真实科目）
