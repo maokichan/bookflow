@@ -134,7 +134,7 @@ const STAGES = [
   { key: "proof2", label: "双语校对" },
   { key: "check", label: "机器检查" },
 ];
-const BEHAVIOR_LABEL = { process: "识别", extract: "抽取", render: "页图", export: "工作台", replay: "回放", ocr: "OCR" };
+const BEHAVIOR_LABEL = { process: "识别", extract: "抽取", render: "页图", export: "工作台", replay: "回放", ocr: "OCR", reprocess: "重渲" };
 
 function nodeState(key, b, inflight) {
   const s = b.stage, pr = b.progress;
@@ -249,7 +249,8 @@ async function renderBook(id) {
     }
     if (st.key === "process" && k === "lock") act = `<span style="font-size:11px;color:var(--dim)">${esc((b.acts && b.acts.process && b.acts.process.reason) || "先完成预处理")}</span>`;
     if (st.key === "process" && k === "cur") act = `<button class="ta acc" data-a="process">识别</button>`;
-    if (st.key === "proof" && s.exported) act = `<button class="ta acc" data-a="proof">校对</button>`;
+    if (st.key === "proof" && s.exported) act = `<button class="ta acc" data-a="proof">校对</button>` +
+      (inflight ? "" : ` <button class="ta" data-a="reprocess" style="font-size:12.5px" title="重出页图与工作台（不重抽，人工裁决不涉险）">重渲</button>`);
     return `<div class="node ${cls}"><div class="dot"></div><div class="lb">${st.label}</div><div class="sub">${sub}</div><div class="act">${act}</div></div>`;
   }).join("");
 
