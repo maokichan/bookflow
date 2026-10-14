@@ -663,7 +663,7 @@ function renderCurrent() {
   } else {
     document.getElementById("cid").textContent = b.id;
     document.getElementById("ctype").textContent = b.type + (b.level ? " L" + b.level : "") + " · " + b.state + (state.focus ? " · 焦点" : "");
-    document.getElementById("ccount").textContent = state.focus ? "Esc 回队列" : (state.idx + 1) + " / " + q.length;
+    document.getElementById("ccount").textContent = state.focus ? "Enter 落位 · Esc/Q 退回" : (state.idx + 1) + " / " + q.length;
     // 拼合现状 + 拼合预览：按 M 之前就知道会拼进什么
     var mine = absorbedBy(b), next = nextMergeable(b);
     var parts = [];
@@ -711,7 +711,6 @@ function doReclassify(n) {
   toast(b.id + " → " + t);
   state.typeMode = false; modebar("");
   renderAll();
-  if (cur() === b) move(1); // 裁决完即下一个
 }
 
 // ===== 手感：跨页拼合（声明式吸收，守恒不破） =====
@@ -819,7 +818,6 @@ function doStructureLevel(n) {
   toast(b.id + " → L" + n);
   state.levelMode = false; modebar("");
   renderAll();
-  if (cur() === b) move(1);
 }
 
 // ===== 注释符：编辑态 N 键，按本页已有标记自增 =====
@@ -854,17 +852,39 @@ function commitEdit() {
   if (b && newText !== b.text) { push("edit", b, { text: newText }); toast("已改文 " + b.id); }
   state.editing = false;
   renderAll();
-  if (cur() === b) move(1); // 裁决完即下一个
 }
 
 // ===== 导航 =====
+// 焦点与队列两套游标：焦点态 J/K 沿书序自由走（从目录树跳进来的位置就地逛，附着/素材也看得到），
+// Enter 落位——队列游标跟到焦点处，回到校对流；Esc/Q 原地退回队列不动游标。
 function move(d) {
   if (state.editing) return;
-  if (state.focus) { toast("焦点查看中 —— Esc 回队列后 J/K"); return; }
+  if (state.focus) { moveFocus(d); return; }
   var n = queue().length;
   if (!n) { renderCurrent(); return; }
   state.idx = Math.min(n - 1, Math.max(0, state.idx + d));
   renderCurrent();
+}
+function moveFocus(d) {
+  var i = DATA.blocks.indexOf(state.focus);
+  for (i += d; i >= 0 && i < DATA.blocks.length; i += d) {
+    if (DATA.blocks[i].absorbedInto) continue;
+    state.focus = DATA.blocks[i];
+    renderAll(); // renderCurrent 会把焦点框居中
+    return;
+  }
+  toast(d > 0 ? "已是书序最后一块" : "已是书序第一块");
+}
+function adoptFocus() {
+  var b = state.focus; if (!b) return;
+  var q = queue();
+  var idx = q.indexOf(b);
+  if (idx < 0) { // 非队列块（附着/素材/已定）：落到它之后第一个队列块
+    for (var i = DATA.blocks.indexOf(b) + 1; i < DATA.blocks.length && idx < 0; i++) idx = q.indexOf(DATA.blocks[i]);
+  }
+  state.focus = null;
+  if (idx >= 0) state.idx = idx;
+  renderAll();
 }
 
 // ===== 导出 =====
@@ -1211,8 +1231,9 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   var key = e.key.length === 1 ? e.key.toLowerCase() : e.key; // 快捷键不挑大小写：大写锁定/ Shift 误按同键
-  if (state.focus && key === "Escape" && !fsHeld) { state.focus = null; renderAll(); return; } // 焦点查看，Esc 回队列
-  if (state.focus && key === "q") { state.focus = null; renderAll(); return; } // 全屏中回队列用 Q
+  if (state.focus && key === "Escape" && !fsHeld) { state.focus = null; renderAll(); return; } // 焦点查看，Esc 原地退回队列
+  if (state.focus && key === "q") { state.focus = null; renderAll(); return; } // 全屏中退回队列用 Q
+  if (state.focus && key === "Enter" && (!e.target || e.target.tagName !== "BUTTON")) { e.preventDefault(); adoptFocus(); return; } // 焦点落位：队列游标跟过来
   switch (key) {
     case "j": case "ArrowUp": e.preventDefault(); move(-1); break;
     case "k": case "ArrowDown": e.preventDefault(); move(1); break;
