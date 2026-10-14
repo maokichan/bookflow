@@ -1,6 +1,6 @@
 {
   "name": "bookflow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "书稿流水线 MVP：PDF → 块图 → 工作台 → 裁决回放",
   "type": "module",
   "engines": {
