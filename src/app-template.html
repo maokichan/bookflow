@@ -113,7 +113,10 @@
 "use strict";
 const $ = (h) => { const d = document.createElement("div"); d.innerHTML = h; return d.firstElementChild; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const api = (p, body) => fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined)
+// 静默失败治理：请求必有回声。本地接口 15 秒超时——挂死的请求超时失败走 toast，不再无限等待
+const api = (p, body) => fetch(p, body
+  ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) }
+  : { signal: AbortSignal.timeout(15000) })
   .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
 
 // 兜底网：动作失败不得无声——漏接的失败在这里现形（正常路径各自 try/catch，这里只兜遗漏）
@@ -150,6 +153,16 @@ function nodeState(key, b, inflight) {
   return "lock"; // 翻译 / 双语校对 / 机器检查：策略位未点亮
 }
 
+// 在途任务的可见形态：运行中带步内进度，排队中带前方任务数——"在动"与"在等"必须一眼可分
+// （长 OCR 十分钟只显"识别中"曾被当成卡死；排队任务与运行任务同貌曾让人白等）
+function inflightLabel(b) {
+  if (!b.inflight) return "";
+  const lbl = BEHAVIOR_LABEL[b.inflightBehavior] || b.inflightBehavior || "";
+  if (b.inflightStatus === "queued")
+    return " · 排队中" + (b.inflightAhead > 0 ? "（前方 " + b.inflightAhead + " 项）" : "");
+  return " · " + lbl + "中" + (b.inflightProgress ? " " + b.inflightProgress : "");
+}
+
 // ---------- 书架 ----------
 async function renderShelf() {
   location.hash === "" && history.replaceState({ guard: true }, "", "#");
@@ -173,14 +186,17 @@ async function renderShelf() {
     if (!imp.querySelector("#f-title").value) imp.querySelector("#f-title").value = f.name.replace(/\.pdf$/i, "");
   });
   imp.querySelector("#f-go").onclick = async () => {
+    const go = imp.querySelector("#f-go");
+    go.disabled = true; go.textContent = "导入中…"; // 动作必回声：点下即变态，失败必出口
     try {
       const f = imp.querySelector("#f-pdf").files[0];
       if (!f) throw new Error("先选 PDF");
       const q = new URLSearchParams({ title: imp.querySelector("#f-title").value || f.name.replace(/\.pdf$/i, ""), name: f.name });
-      const m = await fetch("/api/books/upload?" + q, { method: "POST", body: f })
+      const m = await fetch("/api/books/upload?" + q, { method: "POST", body: f, signal: AbortSignal.timeout(120000) })
         .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
       location.hash = "#/b/" + m.id;
-    } catch (e) { toast(e.message); }
+    } catch (e) { toast(e.name === "TimeoutError" ? "导入超时 —— 文件太大或服务没响应" : e.message); }
+    finally { go.disabled = false; go.textContent = "导入"; }
   };
 
   const grid = $(`<div class="grid"></div>`);
@@ -193,7 +209,7 @@ async function renderShelf() {
         : `<div class="tcov">${esc(b.title)}</div>`}</div>
       <div class="t">${esc(b.title)}</div>
       <div class="bar"><i style="width:${pr.pct}%"></i></div>
-      <div class="p">${pr.pct}%${b.inflight ? " · " + (BEHAVIOR_LABEL[b.inflightBehavior] || b.inflightBehavior || "") + "中" : ""}</div>
+      <div class="p">${pr.pct}%${inflightLabel(b)}</div>
     </div>`);
     card.onclick = () => { location.hash = "#/b/" + b.id; };
     grid.appendChild(card);
@@ -226,7 +242,10 @@ async function renderBook(id) {
     if (st.key === "process" && k === "run") {
       const lbl = BEHAVIOR_LABEL[runTask ? runTask.behavior : "process"] || "识别";
       const steps = runTask && runTask.steps.length > 1 ? ` ${runTask.stepIdx + 1}/${runTask.steps.length}` : "";
-      act = `<button class="ta" disabled>${lbl}中…${steps}</button>`;
+      const prog = runTask && runTask.progress ? ` · ${runTask.progress}` : "";
+      act = runTask && runTask.status === "queued"
+        ? `<button class="ta" disabled>排队中${runTask.ahead > 0 ? "（前方 " + runTask.ahead + " 项）" : ""}…</button>`
+        : `<button class="ta" disabled>${lbl}中…${steps}${prog}</button>`;
     }
     if (st.key === "process" && k === "lock") act = `<span style="font-size:11px;color:var(--dim)">${esc((b.acts && b.acts.process && b.acts.process.reason) || "先完成预处理")}</span>`;
     if (st.key === "process" && k === "cur") act = `<button class="ta acc" data-a="process">识别</button>`;
@@ -273,8 +292,11 @@ async function renderBook(id) {
   const tk = $(`<div class="tasks"></div>`);
   for (const t of tasks) {
     const secs = t.startedAt && t.endedAt ? Math.round((new Date(t.endedAt) - new Date(t.startedAt)) / 1000) : null;
+    const live = t.status === "queued"
+      ? " · 排队中" + (t.ahead > 0 ? "（前方 " + t.ahead + " 项）" : "")
+      : t.status === "running" ? (t.progress ? " · " + t.progress : "") : (secs != null ? " · " + secs + " 秒" : "");
     tk.appendChild($(`<div>${t.status === "done" ? '<span class="ok">✓</span>' : t.status === "error" ? '<span class="bad">✗</span>' : '<span class="run">…</span>'}
-      ${BEHAVIOR_LABEL[t.behavior] || t.behavior}${secs != null ? " · " + secs + " 秒" : ""}
+      ${BEHAVIOR_LABEL[t.behavior] || t.behavior}${live}
       <span style="opacity:.6">${(t.endedAt || "").slice(5, 16).replace("T", " ")}</span></div>`));
     if (t.status === "error" && t.output) {
       // 失败可见（TODO 反馈哑条）：后台失败不再无声，输出尾巴直接给人看
@@ -320,18 +342,23 @@ async function renderBook(id) {
   pollBooks(() => { if (location.hash === "#/b/" + id) renderBook(id); });
 }
 
-// ---------- 轮询：任务状态一变就刷新（开始/换步/结束都算变），不再是"只在在途时刷"——
-// 旧写法在任务结束的下一拍不满足条件，界面永远停在「识别中」（TODO 反馈哑条的根因） ----------
+// ---------- 轮询：页面状态真变了才整体重渲。两个已付过学费的坑，签名逻辑同时防住：
+// 漏刷（旧）：只在在途时判，任务结束的下一拍不满足，界面永远停在「识别中」；
+// 过刷（今晨）：注册时把 lastSig 重置为 null，首轮必判"有变化" → 页面每 2 秒重建一次，
+// 人的输入跟着被抹——选完 PDF 文件还没点导入就被清空，导入从此"点了一点半没有反应"（实测复现）。
+// 所以：lastSig 只随比较推进，绝不重置；签名带进度与排队形态，长任务每页上报都能推动刷新 ----------
 let pollTimer = null;
 let lastPollSig = null;
 let lastPollWarn = 0;
 function pollBooks(fn) {
   if (pollTimer) clearInterval(pollTimer);
-  lastPollSig = null;
   pollTimer = setInterval(async () => {
     try {
       const books = await api("/api/books");
-      const sig = books.filter((b) => b.inflight).map((b) => b.id + ":" + (b.inflightBehavior ?? "")).sort().join("|");
+      const sig = books.map((b) => [
+        b.id, b.inflightBehavior ?? "", b.inflightStatus ?? "", b.inflightProgress ?? "", b.inflightStep ?? "", b.inflightAhead ?? "",
+        b.progress?.pct ?? 0, b.stage?.blockCount ?? 0,
+      ].join(":")).sort().join("|");
       if (sig !== lastPollSig) { lastPollSig = sig; fn(); }
     } catch (e) {
       if (Date.now() - lastPollWarn > 30000) { console.warn("轮询失败（30 秒内不重复提醒）——", e); lastPollWarn = Date.now(); }
@@ -374,6 +401,10 @@ async function togglePrepPanel(id) {
     return;
   }
   const b = await api(`/api/books/${encodeURIComponent(id)}`);
+  // 文本层探测与识别来源弹窗同一口径：纯扫描件在这里也选不了"书籍自带文本层"——
+  // 双入口一个标准，防呆不留旁路
+  const tl = await fetch(`/api/books/${encodeURIComponent(id)}/textlayer`)
+    .then((r) => r.json()).catch((e) => { console.warn("文本层探测失败（按有文本层放行）——", e); return { hasText: true }; });
   const main = document.getElementById("main");
   panel = document.createElement("div");
   panel.className = "panel";
@@ -398,7 +429,7 @@ async function togglePrepPanel(id) {
         <div>
           <div style="font-size:12.5px;color:var(--dim);margin-bottom:4px">OCR 引擎</div>
           <select id="fx-ocr" style="width:100%;padding:5px;border:1px solid var(--line);background:#fff;font:inherit;font-size:13px">
-            <option value="textlayer">书籍自带文本层</option>
+            <option value="textlayer" ${tl.hasText ? "" : "disabled"}>书籍自带文本层${tl.hasText ? "" : "（未检测到文本层）"}</option>
             <option value="cloud" disabled>云端 OCR（未点亮）</option>
             <option value="local">本地 OCR（PP-OCRv5）</option>
           </select>
@@ -424,6 +455,7 @@ async function togglePrepPanel(id) {
   pd.value = (b.params && b.params.denoise) ?? 0;
   ps.value = (b.params && b.params.sharpen) ?? 0;
   po.value = (b.params && b.params.ocr && b.params.ocr.engine) || "textlayer";
+  if (po.selectedOptions[0] && po.selectedOptions[0].disabled) po.value = "local"; // 存量参数指向不可选来源时落回本地
   let bands = ((await api(`/api/books/${encodeURIComponent(id)}/regions`)).bands ?? []).slice();
   let drawMode = false, drawStart = null, ghost = null;
   const showSamples = (j) => {

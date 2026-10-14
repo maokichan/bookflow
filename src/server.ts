@@ -20,6 +20,7 @@ interface Task {
   id: string; book: string; behavior: string; steps: string[]; stepIdx: number;
   status: "queued" | "running" | "done" | "error";
   startedAt?: string; endedAt?: string; exitCode?: number | null; output?: string;
+  progress?: string; // 步内进度（如 187/371）：子进程按约定行 `PROGRESS d/t` 上报，长任务靠它活给人看
 }
 const tasks: Task[] = []; // 新的在前；完成即落该书 tasks.jsonl
 const waiting: Task[] = [];
@@ -64,9 +65,14 @@ function pump(): void {
 
 function spawnStep(t: Task): void {
   const step = t.steps[t.stepIdx];
+  t.progress = undefined;
   const child = spawn(process.execPath, [BEHAVIORS[step], "--book", t.book], { cwd: ROOT });
   let out = "";
-  child.stdout.on("data", (d) => (out += d));
+  child.stdout.on("data", (d) => {
+    out += d;
+    const m = String(d).match(/PROGRESS (\d+\/\d+)/);
+    if (m) t.progress = m[1];
+  });
   child.stderr.on("data", (d) => (out += d));
   child.on("close", (code) => {
     if (code === 0 && t.stepIdx < t.steps.length - 1) { t.stepIdx++; spawnStep(t); return; }
@@ -180,13 +186,25 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (p === "/api/books" && req.method === "GET") {
-      const inflightMap = new Map(tasks.filter((t) => t.status === "queued" || t.status === "running").map((t) => [t.book, t.behavior]));
+      // 在途任务的可见形态一并给出：排队还是运行、步内进度、排在前面的任务数——
+      // 书架要区分"在干活"与"在排队"，长任务要让人看见它在动
+      const inflightMap = new Map(tasks
+        .filter((t) => t.status === "queued" || t.status === "running")
+        .map((t) => [t.book, t]));
       json(res, 200, loadRegistry().filter((m) => !m.deletedAt).map((m) => {
         const P = pathsFor(m.id);
         const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
         const g = loadGraphSoft(P.graph);
         const st = deriveStage(m.id, g);
-        return { ...m, stage: st, progress: progress(m.id, st), params, inflight: inflightMap.has(m.id), inflightBehavior: inflightMap.get(m.id) ?? null, acts: bookActs(m.id, g) };
+        const t = inflightMap.get(m.id);
+        return {
+          ...m, stage: st, progress: progress(m.id, st), params,
+          inflight: !!t, inflightBehavior: t?.behavior ?? null,
+          inflightStatus: t?.status ?? null, inflightProgress: t?.progress ?? null,
+          inflightStep: t ? `${t.stepIdx + 1}/${t.steps.length}` : null,
+          inflightAhead: t && t.status === "queued" ? waiting.indexOf(t) : null,
+          acts: bookActs(m.id, g),
+        };
       }));
       return;
     }
@@ -440,7 +458,9 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (p === "/api/tasks" && req.method === "GET") {
-      json(res, 200, tasks.slice(0, 100));
+      json(res, 200, tasks.slice(0, 100).map((t) => ({
+        ...t, ahead: t.status === "queued" ? waiting.indexOf(t) : null,
+      })));
       return;
     }
     if (p.startsWith("/library/")) {

@@ -71,16 +71,17 @@ export async function polishBuffer(png: Uint8Array, fx: Fx): Promise<Uint8Array>
   return new Uint8Array(out);
 }
 
-// 一次打开 PDF，渲染指定页号列表 → [{page, png}]（fx 逐页应用）
+// 一次打开 PDF，渲染指定页号列表 → [{page, png}]（fx 逐页应用；onProgress 供长任务报进度）
 export async function renderPagesToBuffers(
   pdfPath: string,
   pages: number[],
   scale: number,
   fx: Fx,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<{ page: number; png: Uint8Array }[]> {
   const doc = await loadDoc(pdfPath);
   const out: { page: number; png: Uint8Array }[] = [];
-  for (const p of pages) {
+  for (const [i, p] of pages.entries()) {
     const page = await doc.getPage(p);
     const vp = page.getViewport({ scale });
     const canvas = createCanvas(Math.ceil(vp.width), Math.ceil(vp.height));
@@ -90,6 +91,7 @@ export async function renderPagesToBuffers(
     await page.render({ canvasContext: ctx as any, viewport: vp, background: "#ffffff" } as any).promise;
     const raw = canvas.encodeSync("png");
     out.push({ page: p, png: await polishBuffer(raw, fx) });
+    onProgress?.(i + 1, pages.length);
   }
   return out;
 }

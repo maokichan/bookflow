@@ -57,13 +57,14 @@ const eng = await loadEngine(modelDir());
 const images: Record<string, { w: number; h: number }> = {};
 const lines: { page: number; bbox: { x0: number; y0: number; x1: number; y1: number }; text: string; conf: number }[] = [];
 let total = 0;
-for (const f of pages) {
+for (const [i, f] of pages.entries()) {
   const page = Number(f.slice(1, 4)); // pNNN.png
   images[String(page)] = pngSize(f);
   const { lines: ls, ms } = await eng.runPage(new Uint8Array(readFileSync(path.join(P.pagesDir, f))));
   for (const l of ls) lines.push({ page, ...l });
   total += ms;
   console.log(`  p${page}: ${ls.length} 行 · ${(ms / 1000).toFixed(1)}s`);
+  console.log(`PROGRESS ${i + 1}/${pages.length}`); // 服务端采集：识别在动，不是卡死
 }
 
 const opinion = {

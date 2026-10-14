@@ -22,7 +22,8 @@ const fx: Fx = { ...FX_DEFAULTS, ...(existsSync(P.params) ? JSON.parse(readFileS
 mkdirSync(P.pagesDir, { recursive: true });
 const n = await pdfPageCount(PDF_PATH);
 const pages = Array.from({ length: n }, (_, i) => i + 1);
-const results = await renderPagesToBuffers(PDF_PATH, pages, SCALE, fx);
+const results = await renderPagesToBuffers(PDF_PATH, pages, SCALE, fx,
+  (d, t) => console.log(`PROGRESS ${d}/${t}`));
 for (const r of results) {
   const out = path.join(P.pagesDir, `p${String(r.page).padStart(3, "0")}.png`);
   writeFileSync(out, r.png);
