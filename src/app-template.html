@@ -249,8 +249,7 @@ async function renderBook(id) {
     }
     if (st.key === "process" && k === "lock") act = `<span style="font-size:11px;color:var(--dim)">${esc((b.acts && b.acts.process && b.acts.process.reason) || "先完成预处理")}</span>`;
     if (st.key === "process" && k === "cur") act = `<button class="ta acc" data-a="process">识别</button>`;
-    if (st.key === "proof" && s.exported) act = `<button class="ta acc" data-a="proof">校对</button>` +
-      (inflight ? "" : ` <button class="ta" data-a="reprocess" style="font-size:12.5px" title="重出页图与工作台（不重抽，人工裁决不涉险）">重渲</button>`);
+    if (st.key === "proof" && s.exported) act = `<button class="ta acc" data-a="proof">校对</button>`;
     return `<div class="node ${cls}"><div class="dot"></div><div class="lb">${st.label}</div><div class="sub">${sub}</div><div class="act">${act}</div></div>`;
   }).join("");
 
@@ -306,10 +305,21 @@ async function renderBook(id) {
   }
   if (tasks.length) main.appendChild(tk);
 
-  // 底部：删除（软删除，数据保留；两次确认）
-  const dz = $(`<div class="panel" style="margin-top:46px;display:flex;justify-content:flex-end">
+  // 底部：重出工作台（产物落后时点亮；只重出工作台不跑 OCR 不动页图）+ 删除（软删除，两次确认）
+  const stale = !!b.workbenchStale;
+  const dz = $(`<div class="panel" style="margin-top:46px;display:flex;align-items:center;justify-content:flex-end;gap:16px">
+    ${s.exported ? `<span id="stale-hint" style="font-size:12.5px;color:var(--accent);display:${stale ? "" : "none"}">当前工作台产物落后于程序，点「重出工作台」刷新（几秒，不跑 OCR）</span>
+    <button class="ta ${stale ? "acc" : ""}" id="reexp-btn" ${stale ? "" : "disabled"} title="${stale ? "重出工作台产物（不跑 OCR、不动页图与裁决）" : "产物未落后，无需重出"}">重出工作台</button>` : ""}
     <button class="ta" id="del-btn" style="color:#a8322a">删除这本书</button></div>`);
   main.appendChild(dz);
+  const reexpBtn = dz.querySelector("#reexp-btn");
+  if (reexpBtn) reexpBtn.onclick = async () => {
+    try {
+      await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "export" });
+      toast("重出工作台…");
+      renderBook(id);
+    } catch (e) { toast(e.message); }
+  };
   const delBtn = dz.querySelector("#del-btn");
   delBtn.onclick = async () => {
     if (delBtn.dataset.step !== "1") {
@@ -326,15 +336,12 @@ async function renderBook(id) {
       try {
         if (btn.dataset.a === "process") {
           await openOcrPick(id);
-        } else if (btn.dataset.a === "reprocess") {
-          await api(`/api/books/${encodeURIComponent(id)}/tasks`, { behavior: "reprocess" });
-          renderBook(id);
         } else if (btn.dataset.a === "prep") {
           await togglePrepPanel(id);
         } else if (btn.dataset.a === "proof") {
           // 缓存键跟块图版本：版本不变内容必相同（数据是导出时内联的），版本变了 URL 必变——
           // 浏览器侧任何旧缓存（含禁缓存头合入之前的陈旧拷贝）都命不中
-          if (b.workbenchStale) toast("工作台产物落后于当前程序（新功能不在里面）—— 建议先点「重渲」");
+          if (b.workbenchStale) toast("工作台产物落后于当前程序（新功能不在里面）—— 建议先点「重出工作台」");
           window.open(`/library/${encodeURIComponent(id)}/workbench.html?v=${b.graphVersion ?? 0}`, "_blank");
         }
       } catch (e) { toast(e.message); }

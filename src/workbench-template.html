@@ -793,10 +793,7 @@ function mergeMove(d) { // 候选沿书序只向后（d=1）/向前（d=-1），
     if (DATA.blocks[i].absorbedInto) continue;
     state.mergeCand = DATA.blocks[i].id;
     modebar(mergeBarText(b));
-    renderAll();
-    var pg = PAGES[DATA.blocks[i].page]; // 候选跨页时跟手看过去
-    var r = pg && pg.bbox.querySelector(".brect.cand");
-    if (r) r.scrollIntoView({ block: "nearest" });
+    renderAll(); // centerSelection 以候选为锚，跨页跟手
     return;
   }
 }
@@ -1004,8 +1001,13 @@ function updateSelection() {
   if (mark && PAGES[mark.page]) { drawRect(PAGES[mark.page], mark, cls); PAGES[mark.page].bbox.style.display = "block"; }
 }
 function centerSelection() {
-  // 让位居中：以选中块的主框（不是整页）对齐可视区中心，切换块时目光不丢
+  // 让位居中：以选中块的主框（不是整页）对齐可视区中心，切换块时目光不丢。
+  // 选拼模式以候选块为锚——决定的是"拼不拼它"，看不见候选就无从决定
   var box = state.curRect;
+  if (state.mergeMode && state.mergeCand) {
+    var c = blockById(state.mergeCand);
+    if (c && PAGES[c.page]) box = PAGES[c.page].bbox.querySelector(".brect.cand");
+  }
   if (!(box && box.style.display !== "none")) return;
   var pane = center();
   var cardH = document.getElementById("curcard").offsetHeight + 40;
