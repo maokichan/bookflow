@@ -146,6 +146,11 @@
     background: var(--ink); color: #fff; padding: 6px 18px; border-radius: 4px; display: none; font-size: 14px; }
   #toast { position: fixed; bottom: 18px; right: 18px; z-index: 50; display: none;
     background: var(--ok); color: #fff; padding: 6px 16px; border-radius: 4px; font-size: 13px; }
+  /* 全屏出口：内置浏览器里 Esc 退不出全屏（实测），常驻一枚不显眼的按钮，任何环境都有路出去 */
+  #fsx { position: fixed; top: 10px; right: 12px; z-index: 95; display: none;
+    font-size: 12px; color: var(--dim); background: rgba(250,249,246,.8);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; }
+  #fsx:hover { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -187,6 +192,7 @@
   </div>
 </div>
 <div id="modebar"></div>
+<button id="fsx" type="button">退出全屏 (F)</button>
 <div id="toast"></div>
 <script>
 "use strict";
@@ -1258,6 +1264,10 @@ document.addEventListener("keydown", function (e) {
       break;
     }
     case "i": toggleZoom(); break;
+    case "f": e.preventDefault(); // 全屏开关：自动全屏之外给一把显式的钥匙
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(function () {});
+      break;
     case ",": nudgePage(-1); break;
     case ".": nudgePage(1); break;
     case "s": e.preventDefault(); exportLog(); break;
@@ -1292,6 +1302,14 @@ document.addEventListener("keydown", function (e) {
   go();
   arm();
 })();
+// 全屏出口的可见化：全屏期间右上角常驻按钮（exitFullscreen 不需要手势，任何环境都能退——
+// 内置浏览器里 Esc 不派发全屏退出，自动全屏曾把人困在里面）
+document.addEventListener("fullscreenchange", function () {
+  document.getElementById("fsx").style.display = document.fullscreenElement ? "block" : "none";
+});
+document.getElementById("fsx").addEventListener("click", function () {
+  if (document.fullscreenElement) document.exitFullscreen();
+});
 document.getElementById("title").textContent = DATA.title + " —— 原文校对";
 replayMirror();
 loadUndo();

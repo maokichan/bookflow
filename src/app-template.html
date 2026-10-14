@@ -235,7 +235,7 @@ async function renderBook(id) {
     const cls = k === "done" ? "done" : k === "cur" ? "cur" : k === "run" ? "cur" : "";
     let sub = "", act = "";
     if (st.key === "prep") sub = (b.params && b.params.confirmedAt) ? `${b.params.contrast}% / 降${b.params.denoise ? "开" : "关"} / 锐${b.params.sharpen}` : (s.exported ? "沿用现状" : "");
-    if (st.key === "proof" && s.exported) sub = `${pr.proofDone} / ${pr.proofTotal}`;
+    if (st.key === "proof" && s.exported) sub = `${pr.proofDone} / ${pr.proofTotal}` + (b.workbenchStale ? " · 产物待更新" : "");
     if (st.key === "prep" && k === "run") act = `<button class="ta" disabled>处理中…</button>`;
     if (st.key === "prep" && k === "cur") act = `<button class="ta acc" data-a="prep">预处理</button>`;
     if (st.key === "prep" && k === "done") act = `<button class="ta" data-a="prep" style="font-size:12.5px">参数</button>`;
@@ -333,6 +333,7 @@ async function renderBook(id) {
         } else if (btn.dataset.a === "proof") {
           // 缓存键跟块图版本：版本不变内容必相同（数据是导出时内联的），版本变了 URL 必变——
           // 浏览器侧任何旧缓存（含禁缓存头合入之前的陈旧拷贝）都命不中
+          if (b.workbenchStale) toast("工作台产物落后于当前程序（新功能不在里面）—— 建议先点「重渲」");
           window.open(`/library/${encodeURIComponent(id)}/workbench.html?v=${b.graphVersion ?? 0}`, "_blank");
         }
       } catch (e) { toast(e.message); }

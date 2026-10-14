@@ -207,6 +207,7 @@ const server = createServer(async (req, res) => {
           inflightStatus: t?.status ?? null, inflightProgress: t?.progress ?? null,
           inflightStep: t ? `${t.stepIdx + 1}/${t.steps.length}` : null,
           inflightAhead: t && t.status === "queued" ? waiting.indexOf(t) : null,
+          workbenchStale: workbenchStale(m.id),
           acts: bookActs(m.id, g),
         };
       }));
@@ -282,7 +283,7 @@ const server = createServer(async (req, res) => {
       const params = existsSync(P.params) ? JSON.parse(readFileSync(P.params, "utf-8")) : null;
       const g = loadGraphSoft(P.graph);
       const st = deriveStage(id, g);
-      json(res, 200, { ...meta, stage: st, progress: progress(id, st), params, graphVersion: readGraphVersion(P.graph), acts: bookActs(id, g) });
+      json(res, 200, { ...meta, stage: st, progress: progress(id, st), params, graphVersion: readGraphVersion(P.graph), workbenchStale: workbenchStale(id), acts: bookActs(id, g) });
       return;
     }
     const bookParams = p.match(/^\/api\/books\/([^/]+)\/params$/);
@@ -484,6 +485,14 @@ const server = createServer(async (req, res) => {
 
 function findBook(id: string): BookMeta | undefined {
   return loadRegistry().find((b) => b.id === id);
+}
+
+// 工作台产物是否落后于模板：产物是"识别/重渲"那一刻的快照，模板升级不会钻进旧文件——
+// 拼合模式上不了线就是这一坑（书详情据此提示"待更新"，校对不拦：产物旧但可用）。
+const WORKBENCH_TEMPLATE = path.join(import.meta.dirname, "workbench-template.html");
+function workbenchStale(id: string): boolean {
+  try { return statSync(pathsFor(id).workbench).mtimeMs < statSync(WORKBENCH_TEMPLATE).mtimeMs; }
+  catch { return false; } // 无产物不算陈旧
 }
 
 // 本地 OCR 就绪：能力配置指了模型目录，或项目自带 tools/ocr（机器资产，本地自备）
